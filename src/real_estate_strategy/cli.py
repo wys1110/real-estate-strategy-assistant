@@ -63,15 +63,14 @@ def _fetch(args) -> int:
                 "price_krw",
                 "agency",
                 "note",
+                "source",
                 "detail_url",
                 "fetched_at",
             ],
         )
         writer.writeheader()
         for listing in listings:
-            row = listing.to_dict()
-            row.pop("source", None)
-            writer.writerow(row)
+            writer.writerow(listing.to_dict())
         return 0
 
     _print_table(listings)

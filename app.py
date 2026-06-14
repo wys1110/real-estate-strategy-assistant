@@ -188,6 +188,7 @@ def _listing_rows_and_pins(limit: int, include_all: bool):
         price_label = f"{li.price_manwon}만원"
         rows.append({
             "구분": "매물",
+            "가격 기준": "현재 매물 호가",
             "건물명": li.name,
             "동": "자양동",
             "면적": li.area_sqm,
@@ -196,6 +197,8 @@ def _listing_rows_and_pins(limit: int, include_all: bool):
             "유형/단계": li.listing_type,
             "비고": li.note[:80],
             "상세": li.detail_url,
+            "출처": li.source,
+            "조회시각": li.fetched_at,
         })
         pins.append({
             "kind": "listing",
@@ -222,6 +225,7 @@ def _transaction_rows_and_pins(api_key: str, deal_ymd: str, property_type: str, 
         price_label = f"{t.price_manwon:,}만원"
         rows.append({
             "구분": "실거래",
+            "가격 기준": "신고 실거래가",
             "건물명": t.name,
             "동": t.dong,
             "면적": f"{t.area_sqm}㎡",
@@ -230,6 +234,8 @@ def _transaction_rows_and_pins(api_key: str, deal_ymd: str, property_type: str, 
             "유형/단계": "연립다세대" if property_type == "villa" else "아파트",
             "비고": f"{trade_day} 거래 | {t.build_year or '-'}년식",
             "상세": "",
+            "출처": "국토교통부 공공데이터포털",
+            "조회시각": t.fetched_at,
         })
         pins.append({
             "kind": "transaction",
@@ -259,9 +265,11 @@ def _redevelopment_rows_and_pins(districts: Iterable[str], stages: Iterable[str]
 
     rows = []
     pins = []
+    fetched_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     for z in zones:
         rows.append({
             "구분": "재개발",
+            "가격 기준": "추천 점수",
             "건물명": z.name,
             "동": z.district,
             "면적": "",
@@ -270,6 +278,8 @@ def _redevelopment_rows_and_pins(districts: Iterable[str], stages: Iterable[str]
             "유형/단계": f"{z.biz_type} / {z.stage}",
             "비고": f"진행률 {z.progress}% | 대표지번 {z.address}",
             "상세": "",
+            "출처": "서울시 정비사업 정보몽땅",
+            "조회시각": fetched_at,
         })
         pins.append({
             "kind": "redevelopment",
