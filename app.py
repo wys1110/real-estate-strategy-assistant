@@ -287,9 +287,9 @@ with st.sidebar:
     st.divider()
     st.markdown("### 📍 지도 레이어")
     show_subway  = st.checkbox("🚇 역세권 (지하철역)", value=True)
-    show_school  = st.checkbox("🏫 초품아 (초등학교)", value=False)
-    show_hynix   = st.checkbox("🚌 SK하이닉스 셔틀",  value=False)
-    show_samsung = st.checkbox("🚌 삼성전자 셔틀",    value=False)
+    show_school  = st.checkbox("🏫 초품아 (초등학교)", value=True)
+    show_hynix   = st.checkbox("🚌 SK하이닉스 셔틀",  value=True)
+    show_samsung = st.checkbox("🚌 삼성전자 셔틀",    value=True)
 
 mode = st.radio("모드", MODE_OPTIONS, horizontal=True, index=0)
 
