@@ -6,3 +6,4 @@ venv/
 listings.csv
 data/
 .streamlit/secrets.toml
+.claude/settings.local.json
