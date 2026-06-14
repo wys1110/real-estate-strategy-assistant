@@ -43,8 +43,8 @@ https://www.neonet.co.kr/novo-rebank/view/offerings/inc_OfferingsList.neo?offeri
 
 주요 후보:
 
-- 국토교통부 연립다세대 매매 실거래가 자료: `apis.data.go.kr/1613000/RTMSDataSvcRHTrade`
-- 국토교통부 아파트 매매 실거래가 자료: `apis.data.go.kr/1613000/RTMSDataSvcAptTrade`
+- 국토교통부 연립다세대 매매 실거래가 자료: `apis.data.go.kr/1613000/RTMSDataSvcRHTrade/getRTMSDataSvcRHTrade`
+- 국토교통부 아파트 매매 실거래가 자료: `apis.data.go.kr/1613000/RTMSDataSvcAptTrade/getRTMSDataSvcAptTrade`
 - 국토교통부 실거래가 공개시스템: `https://rt.molit.go.kr/`
 
 실행:

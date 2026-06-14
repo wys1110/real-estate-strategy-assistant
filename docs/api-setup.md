@@ -35,8 +35,8 @@ export MOLIT_API_KEY=발급받은_일반_인증키
 | 서비스 | 국토교통부_연립다세대 매매 실거래가 자료 |
 | 데이터 포맷 | XML |
 | Base URL | `https://apis.data.go.kr/1613000/RTMSDataSvcRHTrade` |
-| Operation | `getRHTradePriceList` |
-| Endpoint | `https://apis.data.go.kr/1613000/RTMSDataSvcRHTrade/getRHTradePriceList` |
+| Operation | `getRTMSDataSvcRHTrade` |
+| Endpoint | `https://apis.data.go.kr/1613000/RTMSDataSvcRHTrade/getRTMSDataSvcRHTrade` |
 | 인증키 환경변수 | `MOLIT_API_KEY` |
 | 활용기간 | `2026-06-14 ~ 2028-06-14` |
 
@@ -61,6 +61,12 @@ CLI 실행:
 MOLIT_API_KEY=... PYTHONPATH=src python3 -m real_estate_strategy.cli transactions --deal-ymd 202605 --type villa
 ```
 
+검증 결과:
+
+- `2026-06-14`에 스크린샷의 일반 인증키로 호출 성공
+- 테스트 파라미터: `LAWD_CD=11215`, `DEAL_YMD=202501`
+- 응답: `HTTP 200`, `resultMsg=OK`, 거래 3건 이상 파싱 확인
+
 ## 아파트 매매 실거래가
 
 현재 코드에 같이 구현되어 있습니다.
@@ -70,14 +76,19 @@ MOLIT_API_KEY=... PYTHONPATH=src python3 -m real_estate_strategy.cli transaction
 | 서비스 | 국토교통부_아파트 매매 실거래가 자료 |
 | 데이터 포맷 | XML |
 | Base URL | `https://apis.data.go.kr/1613000/RTMSDataSvcAptTrade` |
-| Operation | `getAptTradePriceList` |
-| Endpoint | `https://apis.data.go.kr/1613000/RTMSDataSvcAptTrade/getAptTradePriceList` |
+| Operation | `getRTMSDataSvcAptTrade` |
+| Endpoint | `https://apis.data.go.kr/1613000/RTMSDataSvcAptTrade/getRTMSDataSvcAptTrade` |
 
 CLI 실행:
 
 ```bash
 MOLIT_API_KEY=... PYTHONPATH=src python3 -m real_estate_strategy.cli transactions --deal-ymd 202605 --type apt
 ```
+
+검증 결과:
+
+- `2026-06-14`에 같은 키로 호출 시 `HTTP 403 Forbidden`
+- 아파트 매매 실거래가 API는 별도 활용신청이 필요할 가능성이 높습니다.
 
 ## 코드 매핑
 
