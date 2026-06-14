@@ -43,7 +43,7 @@ SEOUL_CENTER = (37.5665, 126.9780)
 REGION_OPTIONS = {"서울 광진구 자양동": "1121510500"}
 LAWD_OPTIONS = {"서울 광진구": "11215"}
 MODE_OPTIONS = ["통합", "매물", "실거래", "재개발"]
-GEO_CACHE_VERSION = "v3"
+GEO_CACHE_VERSION = "v4"
 
 DISTRICT_CENTERS: Dict[str, Tuple[float, float]] = {
     "종로구": (37.5735, 126.9788),
@@ -124,7 +124,11 @@ def _nominatim_search(address: str):
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read())
         if data:
-            return (float(data[0]["lat"]), float(data[0]["lon"]))
+            result = data[0]
+            rank = int(result.get("place_rank") or 0)
+            addresstype = result.get("addresstype", "")
+            if rank >= 26 and addresstype not in {"quarter", "suburb", "city_district", "administrative"}:
+                return (float(result["lat"]), float(result["lon"]))
     except Exception:
         pass
     return None
@@ -160,9 +164,9 @@ def _geocode(address: str, exact: bool, center: Tuple[float, float]):
 
     if exact:
         coords = _nominatim_search(address)
+        time.sleep(1.1)
         if coords:
             cache[cache_key] = (coords, "주소 조회 위치")
-            time.sleep(1.1)
             return cache[cache_key]
 
     anchor, precision, radius = _address_anchor(address, center)
