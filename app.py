@@ -15,6 +15,7 @@ import time
 from typing import Callable, Dict, List, Sequence, Tuple
 
 import folium
+from folium import JsCode
 import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
@@ -48,7 +49,6 @@ GEO_CACHE_VERSION = "v7"
 # BudongsanBank region_cd = 시도(2) + 시군구(3) + 읍면동(3) + 리(2) = 10자리 법정동코드
 # 읍면동 '101' + 리 '00' → 각 구 첫 번째 법정동으로 추정.
 # 광진구 자양동(105)만 실제 동작이 확인됨.
-# 결과가 비면 해당 구의 법정동 코드를 확인해 이 dict에 직접 등록하세요.
 BBANK_CODES: Dict[str, str] = {
     "종로구":   "1111010100",
     "중구":     "1114010100",
@@ -135,7 +135,6 @@ def _get_secret(key: str, default: str = "") -> str:
 
 # ── 위치 추정 ─────────────────────────────────────────────────────────────────
 def _nearest_district(lat: float, lng: float) -> str:
-    """지도 중심 좌표에서 가장 가까운 자치구를 찾습니다."""
     best, best_d = "광진구", float("inf")
     for name, (dla, dln) in DISTRICT_CENTERS.items():
         d = (lat - dla) ** 2 + (lng - dln) ** 2
@@ -161,8 +160,6 @@ def _approx_coords(seed: str, center: Tuple[float, float], radius: float) -> Tup
     return center[0] + lat_offset, center[1] + lon_offset
 
 
-# 지오코딩 결과는 결정적(주소→고정 좌표)이라 프로세스 전역 캐시로 둡니다.
-# (st.session_state에 의존하지 않으므로 워커 스레드에서도 안전하게 호출 가능)
 _GEO_CACHE: Dict[str, Tuple[float, float]] = {}
 
 
@@ -177,8 +174,6 @@ def _geocode(address: str, center: Tuple[float, float]) -> Tuple[float, float]:
 
 
 # ── 경량 TTL 캐시 ─────────────────────────────────────────────────────────────
-# 동일 조건 재조회 시 네트워크 왕복을 건너뜁니다. 스레드에서 호출되므로
-# st.cache_data 대신 직접 구현 (st.* 호출은 ScriptRunContext가 없는 스레드에서 실패).
 _NET_CACHE: Dict[tuple, Tuple[float, object]] = {}
 _NET_CACHE_LOCK = threading.Lock()
 _NET_CACHE_TTL = 600  # 초
@@ -217,13 +212,12 @@ def _listing_rows(district: str, limit: int) -> List[dict]:
     all_listings = parse_listings(fetch_html(url), source_url=url)
     listings = filter_villas(all_listings)[:limit]
     if not listings and all_listings:
-        # 매물은 있지만 빌라/연립만 필터하면 0건 → 전체 포함
         listings = all_listings[:limit]
     rows = []
     for li in listings:
         lat, lng = _geocode(f"서울특별시 {district} {li.name}", center)
         rows.append(_make_row(
-            lat, lng, "🔴 매물 (호가)", li.name,
+            lat, lng, "매물 (호가)", li.name,
             info1=f"{li.area_sqm}㎡ | {li.floor}층",
             info2=f"호가 {li.price_manwon}만원",
             info3=li.note[:60],
@@ -240,14 +234,14 @@ def _transaction_rows(district: str, api_key: str, deal_ymd: str, property_type:
         lawd_cd=lawd_cd,
         deal_ymd=deal_ymd, property_type=property_type,
         api_key=api_key,
-        num_of_rows=min(1000, max(limit, 100)),  # API 최대 1000건까지 요청
+        num_of_rows=min(1000, max(limit, 100)),
     )[:limit]
     rows = []
     for t in txs:
         addr = f"서울특별시 {district} {t.dong} {t.lot_number}"
         lat, lng = _geocode(addr, center)
         rows.append(_make_row(
-            lat, lng, "🔵 실거래", t.name,
+            lat, lng, "실거래", t.name,
             info1=f"{t.area_sqm}㎡ | {t.floor}층",
             info2=f"거래가 {t.price_manwon:,}만원",
             info3=f"{t.deal_year}-{t.deal_month:02d}-{t.deal_day:02d} | {t.build_year or '-'}년식",
@@ -258,7 +252,6 @@ def _transaction_rows(district: str, api_key: str, deal_ymd: str, property_type:
 
 @_ttl_cache
 def _redevelopment_rows(districts: Sequence[str], stages: Sequence[str], only_redev: bool, limit: int) -> List[dict]:
-    # 구별 정보몽땅 조회를 병렬 처리 (각 구가 독립 네트워크 호출)
     zones = []
     if districts:
         with cf.ThreadPoolExecutor(max_workers=min(8, len(districts))) as ex:
@@ -284,7 +277,7 @@ def _redevelopment_rows(districts: Sequence[str], stages: Sequence[str], only_re
         lat, lng = _geocode(addr, SEOUL_CENTER)
         color = _C["redev_high"] if z.score >= 80 else (_C["redev_mid"] if z.score >= 60 else _C["redev_low"])
         rows.append(_make_row(
-            lat, lng, "⭐ 재개발", z.name,
+            lat, lng, "재개발", z.name,
             info1=f"{z.biz_type} | {z.stage}",
             info2=f"추천 {z.score:.0f}점 | 진행률 {z.progress}%",
             info3=z.address,
@@ -297,49 +290,104 @@ def _poi_rows(show_subway: bool, show_school: bool, show_hynix: bool, show_samsu
     rows = []
     if show_subway:
         for s in SUBWAY_STATIONS:
-            rows.append(_make_row(s["lat"], s["lng"], "🚇 지하철역", s["name"],
+            rows.append(_make_row(s["lat"], s["lng"], "지하철역", s["name"],
                                   info1=s["line"], color=_C["subway"], radius=5))
     if show_school:
         for s in ELEMENTARY_SCHOOLS:
-            rows.append(_make_row(s["lat"], s["lng"], "🏫 초등학교", s["name"],
+            rows.append(_make_row(s["lat"], s["lng"], "초등학교", s["name"],
                                   color=_C["school"], radius=5))
     if show_hynix:
         for s in [x for x in SHUTTLE_STOPS if x["company"] == "SK하이닉스"]:
-            rows.append(_make_row(s["lat"], s["lng"], "🚌 SK하이닉스 셔틀", s["name"],
+            rows.append(_make_row(s["lat"], s["lng"], "SK하이닉스 셔틀", s["name"],
                                   color=_C["hynix"], radius=6))
     if show_samsung:
         for s in [x for x in SHUTTLE_STOPS if x["company"] == "삼성전자"]:
-            rows.append(_make_row(s["lat"], s["lng"], "🚌 삼성전자 셔틀", s["name"],
+            rows.append(_make_row(s["lat"], s["lng"], "삼성전자 셔틀", s["name"],
                                   color=_C["samsung"], radius=6))
     return rows
 
 
 # ── folium 지도 ───────────────────────────────────────────────────────────────
-def _popup_html(r: dict) -> str:
-    return (
-        "<div style='font-size:13px;min-width:150px;max-width:230px'>"
-        f"<span style='color:#888;font-size:11px'>{r['label']}</span><br>"
-        f"<b style='font-size:14px'>{r['name']}</b><br>"
-        f"{r['info1']}<br><b>{r['info2']}</b><br>"
-        f"<span style='color:#555'>{r['info3']}</span></div>"
-    )
+# point_to_layer: GeoJSON 피처 하나당 CircleMarker로 렌더링하는 Leaflet JS 함수.
+# N개 CircleMarker 객체 대신 GeoJSON 레이어 1개로 처리 → HTML 크기 대폭 감소.
+_PTL = JsCode("""
+function(feature, latlng) {
+    var p = feature.properties;
+    return L.circleMarker(latlng, {
+        radius: p.radius,
+        fillColor: p.color,
+        color: '#ffffff',
+        weight: 1,
+        fillOpacity: 0.85
+    });
+}
+""")
 
 
 def _build_map(center: Tuple[float, float], zoom: int, rows: List[dict]) -> folium.Map:
-    # prefer_canvas=True → 마커를 캔버스에 일괄 렌더링해 수백~수천 개도 빠르게 그립니다.
     m = folium.Map(location=list(center), zoom_start=zoom,
                    tiles="CartoDB positron", control_scale=True, prefer_canvas=True)
-    for r in rows:
-        # 상세 정보는 popup 대신 tooltip 하나로 — 마커당 생성되는 DOM 요소를 줄여
-        # 렌더링/직렬화 비용을 낮춥니다.
-        folium.CircleMarker(
-            location=[r["lat"], r["lng"]],
-            radius=r["radius"],
-            color="#ffffff", weight=1,
-            fill=True, fill_color=r["color"], fill_opacity=0.85,
-            tooltip=folium.Tooltip(_popup_html(r)),
-        ).add_to(m)
+    if not rows:
+        return m
+
+    features = [
+        {
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [r["lng"], r["lat"]]},
+            "properties": {
+                "label": r["label"],
+                "name": r["name"],
+                "info1": r["info1"],
+                "info2": r["info2"],
+                "color": r["color"],
+                "radius": r["radius"],
+            },
+        }
+        for r in rows
+    ]
+
+    folium.GeoJson(
+        {"type": "FeatureCollection", "features": features},
+        point_to_layer=_PTL,
+        tooltip=folium.GeoJsonTooltip(
+            fields=["label", "name", "info1", "info2"],
+            aliases=["유형", "이름", "상세", "가격/점수"],
+            sticky=True,
+            labels=True,
+            style="font-size:13px;padding:4px;",
+        ),
+    ).add_to(m)
     return m
+
+
+@st.fragment
+def _render_map() -> None:
+    """지도 전용 fragment — 맵 패닝 시 이 fragment만 재실행되고 전체 앱은 재실행되지 않습니다."""
+    layers = st.session_state.get("_layers", {})
+    res = st.session_state.get("results", {"map_rows": [], "table_rows": [], "errors": []})
+    view = st.session_state.setdefault("view", {"center": list(DISTRICT_CENTERS["광진구"]), "zoom": 14})
+
+    poi_rows = _poi_rows(
+        layers.get("subway", True), layers.get("school", True),
+        layers.get("hynix", True), layers.get("samsung", True),
+    )
+    all_rows = res["map_rows"] + poi_rows
+
+    # 마커 데이터가 변경된 경우에만 지도 재빌드
+    map_sig = hash(tuple((round(r["lat"], 5), round(r["lng"], 5), r["color"]) for r in all_rows))
+    cache = st.session_state.get("_map_cache")
+    if not cache or cache["sig"] != map_sig:
+        fmap = _build_map(view["center"], view["zoom"], all_rows)
+        st.session_state["_map_cache"] = {"sig": map_sig, "map": fmap}
+    else:
+        fmap = cache["map"]
+
+    state = st_folium(fmap, key="map", height=560, use_container_width=True,
+                      returned_objects=["center", "zoom"])
+
+    if state and state.get("center"):
+        view["center"] = [state["center"]["lat"], state["center"]["lng"]]
+        view["zoom"] = state.get("zoom") or view["zoom"]
 
 
 # ── UI ───────────────────────────────────────────────────────────────────────
@@ -371,16 +419,20 @@ with st.sidebar:
     show_school  = st.checkbox("🏫 초품아 (초등학교)", value=True)
     show_hynix   = st.checkbox("🚌 SK하이닉스 셔틀",  value=True)
     show_samsung = st.checkbox("🚌 삼성전자 셔틀",    value=True)
+    # fragment가 세션 상태를 통해 레이어 설정을 읽도록 저장
+    st.session_state["_layers"] = {
+        "subway": show_subway, "school": show_school,
+        "hynix": show_hynix, "samsung": show_samsung,
+    }
 
 mode = st.radio("모드", MODE_OPTIONS, horizontal=True, index=0)
 
-# 지도 view 상태 (사용자가 마지막으로 본 위치 유지)
+# 지도 view 상태 (fragment에서 뮤테이션된 dict를 그대로 읽으므로 최신 위치 반영)
 view = st.session_state.setdefault(
     "view", {"center": list(DISTRICT_CENTERS["광진구"]), "zoom": 14}
 )
 cur_district = _nearest_district(view["center"][0], view["center"][1])
 
-# 재개발은 여러 구 비교가 자연스러우므로 모드일 때만 멀티셀렉트 노출
 if mode == "재개발":
     districts = st.multiselect(
         "재개발 자치구 (여러 구 비교 가능)", list(DISTRICT_CODES.keys()),
@@ -411,7 +463,6 @@ if go:
     table_rows: List[Dict] = []
     errors: List[str] = []
 
-    # 모드별로 필요한 조회 작업을 모은 뒤 병렬 실행 (서로 독립적인 네트워크 호출)
     tasks: Dict[str, Callable[[], List[dict]]] = {}
     if mode in ("통합", "매물"):
         tasks["매물"] = lambda: _listing_rows(cur_district, listing_limit)
@@ -440,12 +491,11 @@ if go:
                     except Exception as e:
                         errors.append(f"{kind} 조회 실패: {e}")
 
-    # 테이블/지도는 항상 같은 순서로 모읍니다 (매물 → 실거래 → 재개발)
     for kind in ("매물", "실거래", "재개발"):
         rows = results_by_kind.get(kind)
         if not rows:
             if kind in tasks and kind not in results_by_kind:
-                continue  # 위에서 에러 기록됨
+                continue
             if kind in tasks:
                 errors.append(f"{kind}: 결과가 없습니다 ({cur_district}).")
             continue
@@ -462,28 +512,10 @@ res = st.session_state.get("results", {"map_rows": [], "table_rows": [], "errors
 for err in res["errors"]:
     st.warning(err)
 
-# ── 지도 ─────────────────────────────────────────────────────────────────────
-poi_rows = _poi_rows(show_subway, show_school, show_hynix, show_samsung)
-all_rows = res["map_rows"] + poi_rows
-
-# 지도는 데이터(마커)가 바뀔 때만 새로 만듭니다. 단순 패닝/줌으로 인한 rerun에서는
-# 캐시된 지도 객체를 재사용해 수백~수천 마커를 매번 다시 만드는 비용을 없앱니다.
-map_sig = hash(tuple((round(r["lat"], 5), round(r["lng"], 5), r["color"]) for r in all_rows))
-cache = st.session_state.get("_map_cache")
-if not cache or cache["sig"] != map_sig:
-    fmap = _build_map(view["center"], view["zoom"], all_rows)
-    st.session_state["_map_cache"] = {"sig": map_sig, "map": fmap}
-else:
-    fmap = cache["map"]
-
-state = st_folium(fmap, key="map", height=560, use_container_width=True,
-                  returned_objects=["center", "zoom"])
-
-# 사용자가 지도를 움직이면 중심/줌을 저장 → 다음 조회 위치가 됨.
-# st_folium 위젯 값이 바뀌면 Streamlit이 자동으로 rerun 하므로 명시적 rerun 불필요.
-if state and state.get("center"):
-    view["center"] = [state["center"]["lat"], state["center"]["lng"]]
-    view["zoom"] = state.get("zoom") or view["zoom"]
+# ── 지도 (fragment) ──────────────────────────────────────────────────────────
+# 맵 패닝/줌 이벤트가 rerun을 유발할 때 이 fragment만 재실행됩니다.
+# 사이드바·버튼 등 나머지 위젯은 재실행되지 않으므로 전체적인 응답성이 향상됩니다.
+_render_map()
 
 # ── 요약 + 테이블 ─────────────────────────────────────────────────────────────
 table_rows = res["table_rows"]
