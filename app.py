@@ -43,11 +43,39 @@ st.markdown("<style>.block-container{padding-top:1.5rem}</style>", unsafe_allow_
 
 SEOUL_CENTER = (37.5665, 126.9780)
 MODE_OPTIONS = ["통합", "매물", "실거래", "재개발"]
-GEO_CACHE_VERSION = "v6"
+GEO_CACHE_VERSION = "v7"
 
-# BudongsanBank 구별 region code (5자리 district code + '00000')
-BBANK_CODES: Dict[str, str] = {k: v.zfill(5) + "00000" for k, v in DISTRICT_CODES.items()}
-BBANK_CODES["광진구"] = "1121510500"  # 동작 확인된 코드
+# BudongsanBank region_cd = 시도(2) + 시군구(3) + 읍면동(3) + 리(2) = 10자리 법정동코드
+# 읍면동 '101' + 리 '00' → 각 구 첫 번째 법정동으로 추정.
+# 광진구 자양동(105)만 실제 동작이 확인됨.
+# 결과가 비면 해당 구의 법정동 코드를 확인해 이 dict에 직접 등록하세요.
+BBANK_CODES: Dict[str, str] = {
+    "종로구":   "1111010100",
+    "중구":     "1114010100",
+    "용산구":   "1117010100",
+    "성동구":   "1120010100",
+    "광진구":   "1121510500",   # 자양동 ✓ 확인됨
+    "동대문구": "1123010100",
+    "중랑구":   "1126010100",
+    "성북구":   "1129010100",
+    "강북구":   "1130510100",
+    "도봉구":   "1132010100",
+    "노원구":   "1135010100",
+    "은평구":   "1138010100",
+    "서대문구": "1141010100",
+    "마포구":   "1144010100",
+    "양천구":   "1147010100",
+    "강서구":   "1150010100",
+    "구로구":   "1153010100",
+    "금천구":   "1154510100",
+    "영등포구": "1156010100",
+    "동작구":   "1159010100",
+    "관악구":   "1162010100",
+    "서초구":   "1165010100",
+    "강남구":   "1168010100",   # 압구정동 (URL 패턴 확인)
+    "송파구":   "1171010100",
+    "강동구":   "1174010100",
+}
 
 DISTRICT_CENTERS: Dict[str, Tuple[float, float]] = {
     "종로구": (37.5735, 126.9788), "중구": (37.5636, 126.9976),
@@ -181,10 +209,16 @@ def _make_row(lat, lng, label, name, info1="", info2="", info3="", color="#666",
 # ── 데이터 수집 (TTL 캐시 + 병렬 호출 안전) ──────────────────────────────────
 @_ttl_cache
 def _listing_rows(district: str, limit: int) -> List[dict]:
-    region_code = BBANK_CODES.get(district, BBANK_CODES["광진구"])
+    region_code = BBANK_CODES.get(district)
+    if not region_code:
+        raise ValueError(f"{district} region code 미등록")
     center = DISTRICT_CENTERS.get(district, SEOUL_CENTER)
     url = build_list_url(region_code)
-    listings = filter_villas(parse_listings(fetch_html(url), source_url=url))[:limit]
+    all_listings = parse_listings(fetch_html(url), source_url=url)
+    listings = filter_villas(all_listings)[:limit]
+    if not listings and all_listings:
+        # 매물은 있지만 빌라/연립만 필터하면 0건 → 전체 포함
+        listings = all_listings[:limit]
     rows = []
     for li in listings:
         lat, lng = _geocode(f"서울특별시 {district} {li.name}", center)
