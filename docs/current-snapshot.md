@@ -78,8 +78,11 @@
 
 - Endpoint: `https://apis.data.go.kr/1613000/RTMSDataSvcAptTrade/getRTMSDataSvcAptTrade`
 - 테스트: `LAWD_CD=11215`, `DEAL_YMD=202501`
-- 결과: `HTTP 403 Forbidden`
-- 해석: 현재 키는 스크린샷의 연립다세대 API 활용신청에는 활성화되어 있으나, 아파트 API는 별도 활용신청이 필요할 가능성이 높습니다.
+- 결과: 성공. 단, 같은 키/파라미터에서도 간헐적으로 `HTTP 403 Forbidden`이 발생합니다.
+- 샘플:
+  - `2025-01-25 자양동 대동 59.54㎡ 18층 96,500만원`
+  - `2025-01-20 광장동 워커힐 166.91㎡ 3층 244,900만원`
+- 해석: 아파트 API 활용승인은 되어 있으나, API 서버 응답이 불안정하므로 retry/backoff가 필요합니다.
 
 ## 다음 개발 후보
 

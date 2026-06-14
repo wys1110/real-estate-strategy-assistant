@@ -3,13 +3,15 @@
 환경변수 MOLIT_API_KEY 에 공공데이터포털 일반 인증키를 설정하고 사용합니다.
 
 지원 유형:
-  villa  → 연립다세대  RTMSDataSvcRHTrade/getRHTradePriceList
-  apt    → 아파트      RTMSDataSvcAptTrade/getAptTradePriceList
+  villa  → 연립다세대  RTMSDataSvcRHTrade/getRTMSDataSvcRHTrade
+  apt    → 아파트      RTMSDataSvcAptTrade/getRTMSDataSvcAptTrade
 """
 
 from __future__ import annotations
 
 import os
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -31,6 +33,7 @@ _NAME_TAG = {
 }
 
 PROPERTY_TYPES = tuple(_ENDPOINTS.keys())
+_RETRYABLE_HTTP_STATUS = {403, 429, 500, 502, 503, 504}
 
 
 @dataclass
@@ -80,7 +83,15 @@ def _resolve_key(api_key: Optional[str]) -> str:
     return key
 
 
-def _fetch_raw(endpoint: str, key: str, lawd_cd: str, deal_ymd: str, num_of_rows: int) -> bytes:
+def _fetch_raw(
+    endpoint: str,
+    key: str,
+    lawd_cd: str,
+    deal_ymd: str,
+    num_of_rows: int,
+    attempts: int = 5,
+    initial_delay_seconds: float = 0.5,
+) -> bytes:
     other = urllib.parse.urlencode({
         "LAWD_CD": lawd_cd,
         "DEAL_YMD": deal_ymd,
@@ -90,8 +101,54 @@ def _fetch_raw(endpoint: str, key: str, lawd_cd: str, deal_ymd: str, num_of_rows
     # serviceKey는 포털에서 발급된 값 그대로 사용 (urlencode 시 이중인코딩 방지)
     url = f"{endpoint}?serviceKey={key}&{other}"
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        return resp.read()
+    last_error: Optional[Exception] = None
+
+    for attempt in range(1, attempts + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                return resp.read()
+        except urllib.error.HTTPError as exc:
+            last_error = exc
+            if exc.code not in _RETRYABLE_HTTP_STATUS or attempt == attempts:
+                raise _sanitize_http_error(exc, endpoint, lawd_cd, deal_ymd)
+        except urllib.error.URLError as exc:
+            last_error = exc
+            if attempt == attempts:
+                raise RuntimeError(_safe_fetch_error(endpoint, lawd_cd, deal_ymd, exc))
+
+        time.sleep(initial_delay_seconds * (2 ** (attempt - 1)))
+
+    raise RuntimeError(_safe_fetch_error(endpoint, lawd_cd, deal_ymd, last_error))
+
+
+def _sanitize_http_error(
+    error: urllib.error.HTTPError,
+    endpoint: str,
+    lawd_cd: str,
+    deal_ymd: str,
+) -> RuntimeError:
+    return RuntimeError(
+        "MOLIT API HTTP {status}: endpoint={endpoint} LAWD_CD={lawd_cd} DEAL_YMD={deal_ymd}".format(
+            status=error.code,
+            endpoint=endpoint,
+            lawd_cd=lawd_cd,
+            deal_ymd=deal_ymd,
+        )
+    )
+
+
+def _safe_fetch_error(
+    endpoint: str,
+    lawd_cd: str,
+    deal_ymd: str,
+    error: Optional[Exception],
+) -> str:
+    return "MOLIT API request failed: endpoint={endpoint} LAWD_CD={lawd_cd} DEAL_YMD={deal_ymd} error={error}".format(
+        endpoint=endpoint,
+        lawd_cd=lawd_cd,
+        deal_ymd=deal_ymd,
+        error=error,
+    )
 
 
 def _parse_items(raw: bytes, property_type: str, fetched_at: str) -> List[Transaction]:

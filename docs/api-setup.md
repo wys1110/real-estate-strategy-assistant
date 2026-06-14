@@ -87,8 +87,30 @@ MOLIT_API_KEY=... PYTHONPATH=src python3 -m real_estate_strategy.cli transaction
 
 검증 결과:
 
-- `2026-06-14`에 같은 키로 호출 시 `HTTP 403 Forbidden`
-- 아파트 매매 실거래가 API는 별도 활용신청이 필요할 가능성이 높습니다.
+- `2026-06-14`에 같은 키로 호출 성공
+- 테스트 파라미터: `LAWD_CD=11215`, `DEAL_YMD=202501`
+- 응답: `HTTP 200`, `resultMsg=OK`, 거래 파싱 확인
+- 단, 같은 키/파라미터에서도 간헐적으로 `HTTP 403 Forbidden`이 발생해 retry가 필요합니다.
+
+## 호출 안정성
+
+공공데이터포털 API는 같은 인증키와 같은 파라미터에서도 간헐적으로 `HTTP 403 Forbidden`을 반환할 수 있습니다. 실제 검증 중 아파트 매매 API에서 2회 실패 후 3회차에 정상 응답이 확인되었습니다.
+
+현재 구현은 다음 HTTP 상태에 대해 재시도합니다.
+
+- `403`
+- `429`
+- `500`
+- `502`
+- `503`
+- `504`
+
+재시도 정책:
+
+- 최대 5회
+- 0.5초부터 exponential backoff
+- 최종 실패 로그에는 endpoint, `LAWD_CD`, `DEAL_YMD`만 포함
+- 인증키 원문은 예외 메시지나 문서에 남기지 않음
 
 ## 코드 매핑
 
