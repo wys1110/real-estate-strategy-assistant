@@ -5,10 +5,14 @@
 """
 from __future__ import annotations
 
+import concurrent.futures as cf
+import functools
 import hashlib
 import os
 import sys
-from typing import Dict, Iterable, List, Tuple
+import threading
+import time
+from typing import Callable, Dict, List, Sequence, Tuple
 
 import folium
 import pandas as pd
@@ -129,13 +133,44 @@ def _approx_coords(seed: str, center: Tuple[float, float], radius: float) -> Tup
     return center[0] + lat_offset, center[1] + lon_offset
 
 
+# 지오코딩 결과는 결정적(주소→고정 좌표)이라 프로세스 전역 캐시로 둡니다.
+# (st.session_state에 의존하지 않으므로 워커 스레드에서도 안전하게 호출 가능)
+_GEO_CACHE: Dict[str, Tuple[float, float]] = {}
+
+
 def _geocode(address: str, center: Tuple[float, float]) -> Tuple[float, float]:
-    cache = st.session_state.setdefault("_geo_cache", {})
     cache_key = f"{GEO_CACHE_VERSION}::{address}"
-    if cache_key not in cache:
+    coords = _GEO_CACHE.get(cache_key)
+    if coords is None:
         anchor, radius = _address_anchor(address, center)
-        cache[cache_key] = _approx_coords(address, anchor, radius)
-    return cache[cache_key]
+        coords = _approx_coords(address, anchor, radius)
+        _GEO_CACHE[cache_key] = coords
+    return coords
+
+
+# ── 경량 TTL 캐시 ─────────────────────────────────────────────────────────────
+# 동일 조건 재조회 시 네트워크 왕복을 건너뜁니다. 스레드에서 호출되므로
+# st.cache_data 대신 직접 구현 (st.* 호출은 ScriptRunContext가 없는 스레드에서 실패).
+_NET_CACHE: Dict[tuple, Tuple[float, object]] = {}
+_NET_CACHE_LOCK = threading.Lock()
+_NET_CACHE_TTL = 600  # 초
+
+
+def _ttl_cache(fn: Callable) -> Callable:
+    @functools.wraps(fn)
+    def wrapper(*args):
+        key = (fn.__name__, args)
+        now = time.time()
+        with _NET_CACHE_LOCK:
+            hit = _NET_CACHE.get(key)
+            if hit and now - hit[0] < _NET_CACHE_TTL:
+                return hit[1]
+        value = fn(*args)
+        with _NET_CACHE_LOCK:
+            _NET_CACHE[key] = (now, value)
+        return value
+
+    return wrapper
 
 
 def _make_row(lat, lng, label, name, info1="", info2="", info3="", color="#666", radius=7):
@@ -143,7 +178,8 @@ def _make_row(lat, lng, label, name, info1="", info2="", info3="", color="#666",
                 info1=info1, info2=info2, info3=info3, color=color, radius=radius)
 
 
-# ── 데이터 수집 ───────────────────────────────────────────────────────────────
+# ── 데이터 수집 (TTL 캐시 + 병렬 호출 안전) ──────────────────────────────────
+@_ttl_cache
 def _listing_rows(district: str, limit: int) -> List[dict]:
     region_code = BBANK_CODES.get(district, BBANK_CODES["광진구"])
     center = DISTRICT_CENTERS.get(district, SEOUL_CENTER)
@@ -162,6 +198,7 @@ def _listing_rows(district: str, limit: int) -> List[dict]:
     return rows
 
 
+@_ttl_cache
 def _transaction_rows(district: str, api_key: str, deal_ymd: str, property_type: str, limit: int) -> List[dict]:
     lawd_cd = DISTRICT_CODES.get(district, "11215")
     center = DISTRICT_CENTERS.get(district, SEOUL_CENTER)
@@ -185,11 +222,19 @@ def _transaction_rows(district: str, api_key: str, deal_ymd: str, property_type:
     return rows
 
 
-def _redevelopment_rows(districts: Iterable[str], stages: Iterable[str], only_redev: bool, limit: int) -> List[dict]:
+@_ttl_cache
+def _redevelopment_rows(districts: Sequence[str], stages: Sequence[str], only_redev: bool, limit: int) -> List[dict]:
+    # 구별 정보몽땅 조회를 병렬 처리 (각 구가 독립 네트워크 호출)
     zones = []
-    for d in districts:
-        fetched, _ = fetch_zones(DISTRICT_CODES[d], page_size=200)
-        zones.extend(fetched)
+    if districts:
+        with cf.ThreadPoolExecutor(max_workers=min(8, len(districts))) as ex:
+            futures = [ex.submit(fetch_zones, DISTRICT_CODES[d], 1, 200) for d in districts]
+            for fut in cf.as_completed(futures):
+                try:
+                    fetched, _ = fut.result()
+                    zones.extend(fetched)
+                except Exception:
+                    continue
     stage_set = set(stages)
     if stage_set:
         zones = [z for z in zones if z.stage in stage_set]
@@ -247,16 +292,18 @@ def _popup_html(r: dict) -> str:
 
 
 def _build_map(center: Tuple[float, float], zoom: int, rows: List[dict]) -> folium.Map:
+    # prefer_canvas=True → 마커를 캔버스에 일괄 렌더링해 수백~수천 개도 빠르게 그립니다.
     m = folium.Map(location=list(center), zoom_start=zoom,
-                   tiles="CartoDB positron", control_scale=True)
+                   tiles="CartoDB positron", control_scale=True, prefer_canvas=True)
     for r in rows:
+        # 상세 정보는 popup 대신 tooltip 하나로 — 마커당 생성되는 DOM 요소를 줄여
+        # 렌더링/직렬화 비용을 낮춥니다.
         folium.CircleMarker(
             location=[r["lat"], r["lng"]],
             radius=r["radius"],
             color="#ffffff", weight=1,
             fill=True, fill_color=r["color"], fill_opacity=0.85,
-            tooltip=r["name"],
-            popup=folium.Popup(_popup_html(r), max_width=260),
+            tooltip=folium.Tooltip(_popup_html(r)),
         ).add_to(m)
     return m
 
@@ -330,44 +377,48 @@ if go:
     table_rows: List[Dict] = []
     errors: List[str] = []
 
+    # 모드별로 필요한 조회 작업을 모은 뒤 병렬 실행 (서로 독립적인 네트워크 호출)
+    tasks: Dict[str, Callable[[], List[dict]]] = {}
     if mode in ("통합", "매물"):
-        with st.spinner(f"매물 호가 조회 중... ({cur_district})"):
-            try:
-                rows = _listing_rows(cur_district, listing_limit)
-                map_rows.extend(rows)
-                for r in rows:
-                    table_rows.append({"구분": "매물", "건물명": r["name"],
-                                       "면적/층": r["info1"], "가격": r["info2"], "비고": r["info3"]})
-            except Exception as e:
-                errors.append(f"매물 조회 실패: {e}")
-
+        tasks["매물"] = lambda: _listing_rows(cur_district, listing_limit)
     if mode in ("통합", "실거래"):
         if not api_key:
             errors.append("실거래가 조회에는 MOLIT API KEY가 필요합니다.")
         else:
-            with st.spinner(f"실거래가 조회 중... ({cur_district})"):
-                try:
-                    rows = _transaction_rows(cur_district, api_key, deal_ymd, property_type, transaction_limit)
-                    map_rows.extend(rows)
-                    for r in rows:
-                        table_rows.append({"구분": "실거래", "건물명": r["name"],
-                                           "면적/층": r["info1"], "가격": r["info2"], "비고": r["info3"]})
-                except Exception as e:
-                    errors.append(f"실거래가 조회 실패: {e}")
-
+            tasks["실거래"] = lambda: _transaction_rows(
+                cur_district, api_key, deal_ymd, property_type, transaction_limit)
     if mode in ("통합", "재개발"):
         if not districts:
             errors.append("재개발 자치구를 1개 이상 선택하세요.")
         else:
-            with st.spinner("정비사업 데이터 조회 중..."):
-                try:
-                    rows = _redevelopment_rows(districts, stages, only_redev, redev_limit)
-                    map_rows.extend(rows)
-                    for r in rows:
-                        table_rows.append({"구분": "재개발", "건물명": r["name"],
-                                           "면적/층": r["info1"], "가격": r["info2"], "비고": r["info3"]})
-                except Exception as e:
-                    errors.append(f"재개발 조회 실패: {e}")
+            tasks["재개발"] = lambda: _redevelopment_rows(
+                tuple(districts), tuple(stages), only_redev, redev_limit)
+
+    results_by_kind: Dict[str, List[dict]] = {}
+    if tasks:
+        with st.spinner(f"조회 중... ({', '.join(tasks)})"):
+            with cf.ThreadPoolExecutor(max_workers=len(tasks)) as ex:
+                future_kind = {ex.submit(fn): kind for kind, fn in tasks.items()}
+                for fut in cf.as_completed(future_kind):
+                    kind = future_kind[fut]
+                    try:
+                        results_by_kind[kind] = fut.result()
+                    except Exception as e:
+                        errors.append(f"{kind} 조회 실패: {e}")
+
+    # 테이블/지도는 항상 같은 순서로 모읍니다 (매물 → 실거래 → 재개발)
+    for kind in ("매물", "실거래", "재개발"):
+        rows = results_by_kind.get(kind)
+        if not rows:
+            if kind in tasks and kind not in results_by_kind:
+                continue  # 위에서 에러 기록됨
+            if kind in tasks:
+                errors.append(f"{kind}: 결과가 없습니다 ({cur_district}).")
+            continue
+        map_rows.extend(rows)
+        for r in rows:
+            table_rows.append({"구분": kind, "건물명": r["name"],
+                               "면적/층": r["info1"], "가격": r["info2"], "비고": r["info3"]})
 
     st.session_state["results"] = {"map_rows": map_rows, "table_rows": table_rows,
                                    "errors": errors, "mode": mode, "district": cur_district}
@@ -381,7 +432,16 @@ for err in res["errors"]:
 poi_rows = _poi_rows(show_subway, show_school, show_hynix, show_samsung)
 all_rows = res["map_rows"] + poi_rows
 
-fmap = _build_map(view["center"], view["zoom"], all_rows)
+# 지도는 데이터(마커)가 바뀔 때만 새로 만듭니다. 단순 패닝/줌으로 인한 rerun에서는
+# 캐시된 지도 객체를 재사용해 수백~수천 마커를 매번 다시 만드는 비용을 없앱니다.
+map_sig = hash(tuple((round(r["lat"], 5), round(r["lng"], 5), r["color"]) for r in all_rows))
+cache = st.session_state.get("_map_cache")
+if not cache or cache["sig"] != map_sig:
+    fmap = _build_map(view["center"], view["zoom"], all_rows)
+    st.session_state["_map_cache"] = {"sig": map_sig, "map": fmap}
+else:
+    fmap = cache["map"]
+
 state = st_folium(fmap, key="map", height=560, use_container_width=True,
                   returned_objects=["center", "zoom"])
 
