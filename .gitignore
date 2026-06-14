@@ -5,3 +5,4 @@ __pycache__/
 venv/
 listings.csv
 data/
+.streamlit/secrets.toml

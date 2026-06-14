@@ -26,9 +26,14 @@ As of 2026-06-14:
 
 ```bash
 cd /Users/yongseokwon/dev/real-estate-strategy-assistant
+
+# CLI
 PYTHONPATH=src python3 -m real_estate_strategy.cli fetch --limit 12
 PYTHONPATH=src python3 -m real_estate_strategy.cli fetch --format json --limit 5
 MOLIT_API_KEY=... PYTHONPATH=src python3 -m real_estate_strategy.cli transactions --deal-ymd 202605 --type villa
+
+# Streamlit 웹앱 (Python 3.12 venv)
+.venv/bin/streamlit run app.py
 ```
 
 ## Source Boundaries
