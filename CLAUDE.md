@@ -10,6 +10,7 @@
 - Treat scraped or HTML-parsed listing data as unstable. Always preserve source URL and fetch timestamp.
 - Do not hide uncertainty. Mark data as `current_listing`, `actual_transaction`, `index/statistic`, or `manual_note`.
 - Avoid aggressive crawling. Fetch only the requested page or small page ranges.
+- Keep user-facing outputs source-aware: listing CSV output and Streamlit detail rows should expose source/fetched timestamp where available.
 
 ## Current Data Findings
 
@@ -47,6 +48,7 @@ MOLIT_API_KEY=... PYTHONPATH=src python3 -m real_estate_strategy.cli transaction
 
 - Run the CLI after parser changes.
 - Confirm at least one listing has `listing_id`, `listing_type`, `name`, `area_sqm`, `floor`, and `price_manwon`.
+- Confirm CSV listing output keeps `source` and `fetched_at`.
 - Run `python3 -m compileall src`.
 - Keep docs aligned when adding a new source.
 - If source access fails, report status code/body symptom rather than silently falling back.
