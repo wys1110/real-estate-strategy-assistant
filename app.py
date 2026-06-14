@@ -1,18 +1,19 @@
 """Streamlit 부동산 전략 어시스턴트 웹앱.
 
-한 화면에서 모드를 선택하고, 모든 결과를 하나의 Pydeck 지도와 상세 테이블로 봅니다.
+지도를 움직여 검색 위치(자치구)를 정하고, 사이드바에서 레이어
+(역세권·초품아·SK하이닉스/삼성전자 셔틀)를 켜서 비교합니다.
 """
 from __future__ import annotations
 
 import hashlib
 import os
 import sys
-import time
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Tuple
 
+import folium
 import pandas as pd
-import pydeck as pdk
 import streamlit as st
+from streamlit_folium import st_folium
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
@@ -38,7 +39,7 @@ st.markdown("<style>.block-container{padding-top:1.5rem}</style>", unsafe_allow_
 
 SEOUL_CENTER = (37.5665, 126.9780)
 MODE_OPTIONS = ["통합", "매물", "실거래", "재개발"]
-GEO_CACHE_VERSION = "v5"
+GEO_CACHE_VERSION = "v6"
 
 # BudongsanBank 구별 region code (5자리 district code + '00000')
 BBANK_CODES: Dict[str, str] = {k: v.zfill(5) + "00000" for k, v in DISTRICT_CODES.items()}
@@ -79,12 +80,36 @@ DONG_CENTERS: Dict[str, Tuple[float, float]] = {
     "강일동": (37.5655, 127.1743),
 }
 
+# ── 색상 (folium 마커용 hex) ──────────────────────────────────────────────────
+_C = {
+    "listing":     "#dc3232",
+    "transaction": "#1e78dc",
+    "redev_high":  "#b40000",
+    "redev_mid":   "#ff8c00",
+    "redev_low":   "#00b450",
+    "subway":      "#ffa500",
+    "school":      "#00a050",
+    "hynix":       "#9400d3",
+    "samsung":     "#0050b4",
+}
+
 
 def _get_secret(key: str, default: str = "") -> str:
     try:
         return st.secrets[key]
     except (KeyError, FileNotFoundError):
         return os.environ.get(key, default)
+
+
+# ── 위치 추정 ─────────────────────────────────────────────────────────────────
+def _nearest_district(lat: float, lng: float) -> str:
+    """지도 중심 좌표에서 가장 가까운 자치구를 찾습니다."""
+    best, best_d = "광진구", float("inf")
+    for name, (dla, dln) in DISTRICT_CENTERS.items():
+        d = (lat - dla) ** 2 + (lng - dln) ** 2
+        if d < best_d:
+            best_d, best = d, name
+    return best
 
 
 def _address_anchor(address: str, fallback: Tuple[float, float]) -> Tuple[Tuple[float, float], float]:
@@ -113,27 +138,12 @@ def _geocode(address: str, center: Tuple[float, float]) -> Tuple[float, float]:
     return cache[cache_key]
 
 
-# ── 색상 상수 ────────────────────────────────────────────────────────────────
-_C = {
-    "listing":     [220, 50,  50,  220],
-    "transaction": [30,  120, 220, 220],
-    "redev_high":  [180, 0,   0,   230],
-    "redev_mid":   [255, 140, 0,   220],
-    "redev_low":   [0,   180, 80,  210],
-    "subway":      [255, 165, 0,   200],
-    "school":      [0,   160, 80,  200],
-    "hynix":       [148, 0,   211, 210],
-    "samsung":     [0,   80,  180, 210],
-}
-
-
-def _make_row(lat, lng, label, name, info1="", info2="", info3="", color=None, radius=80):
-    r, g, b, a = color or [100, 100, 100, 200]
+def _make_row(lat, lng, label, name, info1="", info2="", info3="", color="#666", radius=7):
     return dict(lat=lat, lng=lng, label=label, name=name,
-                info1=info1, info2=info2, info3=info3,
-                r=r, g=g, b=b, a=a, radius=radius)
+                info1=info1, info2=info2, info3=info3, color=color, radius=radius)
 
 
+# ── 데이터 수집 ───────────────────────────────────────────────────────────────
 def _listing_rows(district: str, limit: int) -> List[dict]:
     region_code = BBANK_CODES.get(district, BBANK_CODES["광진구"])
     center = DISTRICT_CENTERS.get(district, SEOUL_CENTER)
@@ -198,7 +208,7 @@ def _redevelopment_rows(districts: Iterable[str], stages: Iterable[str], only_re
             info1=f"{z.biz_type} | {z.stage}",
             info2=f"추천 {z.score:.0f}점 | 진행률 {z.progress}%",
             info3=z.address,
-            color=color, radius=100,
+            color=color, radius=9,
         ))
     return rows
 
@@ -208,33 +218,69 @@ def _poi_rows(show_subway: bool, show_school: bool, show_hynix: bool, show_samsu
     if show_subway:
         for s in SUBWAY_STATIONS:
             rows.append(_make_row(s["lat"], s["lng"], "🚇 지하철역", s["name"],
-                                  info1=s["line"], color=_C["subway"], radius=55))
+                                  info1=s["line"], color=_C["subway"], radius=5))
     if show_school:
         for s in ELEMENTARY_SCHOOLS:
             rows.append(_make_row(s["lat"], s["lng"], "🏫 초등학교", s["name"],
-                                  color=_C["school"], radius=55))
+                                  color=_C["school"], radius=5))
     if show_hynix:
         for s in [x for x in SHUTTLE_STOPS if x["company"] == "SK하이닉스"]:
             rows.append(_make_row(s["lat"], s["lng"], "🚌 SK하이닉스 셔틀", s["name"],
-                                  color=_C["hynix"], radius=65))
+                                  color=_C["hynix"], radius=6))
     if show_samsung:
         for s in [x for x in SHUTTLE_STOPS if x["company"] == "삼성전자"]:
             rows.append(_make_row(s["lat"], s["lng"], "🚌 삼성전자 셔틀", s["name"],
-                                  color=_C["samsung"], radius=65))
+                                  color=_C["samsung"], radius=6))
     return rows
 
 
+# ── folium 지도 ───────────────────────────────────────────────────────────────
+def _popup_html(r: dict) -> str:
+    return (
+        "<div style='font-size:13px;min-width:150px;max-width:230px'>"
+        f"<span style='color:#888;font-size:11px'>{r['label']}</span><br>"
+        f"<b style='font-size:14px'>{r['name']}</b><br>"
+        f"{r['info1']}<br><b>{r['info2']}</b><br>"
+        f"<span style='color:#555'>{r['info3']}</span></div>"
+    )
+
+
+def _build_map(center: Tuple[float, float], zoom: int, rows: List[dict]) -> folium.Map:
+    m = folium.Map(location=list(center), zoom_start=zoom,
+                   tiles="CartoDB positron", control_scale=True)
+    for r in rows:
+        folium.CircleMarker(
+            location=[r["lat"], r["lng"]],
+            radius=r["radius"],
+            color="#ffffff", weight=1,
+            fill=True, fill_color=r["color"], fill_opacity=0.85,
+            tooltip=r["name"],
+            popup=folium.Popup(_popup_html(r), max_width=260),
+        ).add_to(m)
+    return m
+
+
 # ── UI ───────────────────────────────────────────────────────────────────────
-st.title("부동산 전략 어시스턴트")
-st.caption("모드를 바꾸면 지도와 데이터가 함께 갱신됩니다.")
+st.title("🏠 부동산 전략 어시스턴트")
+st.caption("지도를 움직여 동네를 정하고, '이 위치 조회'로 매물·실거래·재개발을 한눈에 비교합니다.")
 
 with st.sidebar:
-    st.markdown("### 데이터 출처")
+    st.markdown("### 📊 데이터 출처")
     st.markdown(
         "- 🔴 부동산뱅크: 현재 매물 호가\n"
         "- 🔵 국토교통부: 신고 실거래가\n"
         "- ⭐ 서울시 정보몽땅: 정비사업"
     )
+    st.divider()
+    st.markdown("### 🔍 조회 옵션")
+    listing_limit = st.number_input("매물 수", 1, 80, 15)
+    deal_ymd = st.text_input("계약년월", value="202501")
+    property_type = st.selectbox(
+        "실거래 유형", list(PROPERTY_TYPES),
+        format_func=lambda x: "연립다세대" if x == "villa" else "아파트",
+    )
+    transaction_limit = st.number_input("실거래 수", 1, 200, 20)
+    redev_limit = st.number_input("재개발 구역 수", 1, 100, 25)
     st.divider()
     st.markdown("### 📍 지도 레이어")
     show_subway  = st.checkbox("🚇 역세권 (지하철역)", value=True)
@@ -244,47 +290,47 @@ with st.sidebar:
 
 mode = st.radio("모드", MODE_OPTIONS, horizontal=True, index=0)
 
-_district_list = list(DISTRICT_CENTERS.keys())
-ctrl = st.columns([1.5, 1.2, 1, 1, 1, 1])
-with ctrl[0]:
-    district = st.selectbox("🗺️ 구 선택", _district_list,
-                            index=_district_list.index("광진구"))
-with ctrl[1]:
-    listing_limit = st.number_input("매물 수", 1, 80, 15)
-with ctrl[2]:
-    deal_ymd = st.text_input("계약년월", value="202501")
-with ctrl[3]:
-    property_type = st.selectbox(
-        "실거래 유형", list(PROPERTY_TYPES),
-        format_func=lambda x: "연립다세대" if x == "villa" else "아파트",
-    )
-with ctrl[4]:
-    transaction_limit = st.number_input("실거래 수", 1, 200, 20)
-with ctrl[5]:
-    redev_limit = st.number_input("구역 수", 1, 100, 25)
+# 지도 view 상태 (사용자가 마지막으로 본 위치 유지)
+view = st.session_state.setdefault(
+    "view", {"center": list(DISTRICT_CENTERS["광진구"]), "zoom": 14}
+)
+cur_district = _nearest_district(view["center"][0], view["center"][1])
 
-redev_cols = st.columns([2, 2, 1])
-with redev_cols[0]:
-    districts = st.multiselect("재개발 자치구", list(DISTRICT_CODES.keys()),
-                               default=["광진구", "성동구", "강동구"])
-with redev_cols[1]:
-    stages = st.multiselect("진행단계", STAGES, default=INVESTMENT_STAGES)
-with redev_cols[2]:
-    only_redev = st.checkbox("재개발만", value=False)
+# 재개발은 여러 구 비교가 자연스러우므로 모드일 때만 멀티셀렉트 노출
+if mode == "재개발":
+    districts = st.multiselect(
+        "재개발 자치구 (여러 구 비교 가능)", list(DISTRICT_CODES.keys()),
+        default=[cur_district],
+    )
+    rc = st.columns([3, 1])
+    with rc[0]:
+        stages = st.multiselect("진행단계", STAGES, default=INVESTMENT_STAGES)
+    with rc[1]:
+        only_redev = st.checkbox("재개발만", value=False)
+else:
+    districts = [cur_district]
+    stages = INVESTMENT_STAGES
+    only_redev = False
 
 api_key = _get_secret("MOLIT_API_KEY")
 if mode in ("통합", "실거래") and not api_key:
     api_key = st.text_input("MOLIT API KEY", type="password", help="실거래가 조회에 필요합니다.")
 
-if st.button("조회하고 지도에 표시", type="primary", use_container_width=True):
+loc = st.columns([3, 1])
+with loc[0]:
+    st.info(f"📍 현재 지도 중심: **{cur_district}** — 이 위치 기준으로 조회합니다.")
+with loc[1]:
+    go = st.button("🔍 이 위치 조회", type="primary", use_container_width=True)
+
+if go:
     map_rows: List[dict] = []
     table_rows: List[Dict] = []
     errors: List[str] = []
 
     if mode in ("통합", "매물"):
-        with st.spinner("매물 호가 조회 중..."):
+        with st.spinner(f"매물 호가 조회 중... ({cur_district})"):
             try:
-                rows = _listing_rows(district, listing_limit)
+                rows = _listing_rows(cur_district, listing_limit)
                 map_rows.extend(rows)
                 for r in rows:
                     table_rows.append({"구분": "매물", "건물명": r["name"],
@@ -296,9 +342,9 @@ if st.button("조회하고 지도에 표시", type="primary", use_container_widt
         if not api_key:
             errors.append("실거래가 조회에는 MOLIT API KEY가 필요합니다.")
         else:
-            with st.spinner("실거래가 조회 중..."):
+            with st.spinner(f"실거래가 조회 중... ({cur_district})"):
                 try:
-                    rows = _transaction_rows(district, api_key, deal_ymd, property_type, transaction_limit)
+                    rows = _transaction_rows(cur_district, api_key, deal_ymd, property_type, transaction_limit)
                     map_rows.extend(rows)
                     for r in rows:
                         table_rows.append({"구분": "실거래", "건물명": r["name"],
@@ -321,7 +367,7 @@ if st.button("조회하고 지도에 표시", type="primary", use_container_widt
                     errors.append(f"재개발 조회 실패: {e}")
 
     st.session_state["results"] = {"map_rows": map_rows, "table_rows": table_rows,
-                                   "errors": errors, "mode": mode, "district": district}
+                                   "errors": errors, "mode": mode, "district": cur_district}
     st.rerun()
 
 res = st.session_state.get("results", {"map_rows": [], "table_rows": [], "errors": [], "mode": mode})
@@ -332,53 +378,20 @@ for err in res["errors"]:
 poi_rows = _poi_rows(show_subway, show_school, show_hynix, show_samsung)
 all_rows = res["map_rows"] + poi_rows
 
-_res_district = res.get("district", district)
-center = SEOUL_CENTER if res["mode"] == "재개발" else DISTRICT_CENTERS.get(_res_district, SEOUL_CENTER)
-zoom   = 11 if res["mode"] == "재개발" else 14
+fmap = _build_map(view["center"], view["zoom"], all_rows)
+state = st_folium(fmap, key="map", height=560, use_container_width=True,
+                  returned_objects=["center", "zoom"])
 
-tooltip = {
-    "html": """
-    <div style='font-size:13px;padding:6px;min-width:150px;max-width:220px'>
-      <span style='color:#888;font-size:11px'>{label}</span><br>
-      <b style='font-size:14px'>{name}</b><br>
-      {info1}<br><b>{info2}</b><br>
-      <span style='color:#555'>{info3}</span>
-    </div>""",
-    "style": {"background": "white", "color": "#333",
-              "border": "1px solid #ddd", "borderRadius": "8px", "padding": "6px"},
-}
-
-layers = []
-if all_rows:
-    layers.append(pdk.Layer(
-        "ScatterplotLayer",
-        data=pd.DataFrame(all_rows),
-        get_position=["lng", "lat"],
-        get_fill_color=["r", "g", "b", "a"],
-        get_radius="radius",
-        radius_min_pixels=5,
-        radius_max_pixels=22,
-        pickable=True,
-        stroked=True,
-        get_line_color=[255, 255, 255],
-        line_width_min_pixels=1,
-    ))
-
-st.pydeck_chart(
-    pdk.Deck(
-        layers=layers,
-        initial_view_state=pdk.ViewState(latitude=center[0], longitude=center[1], zoom=zoom, pitch=0),
-        map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
-        tooltip=tooltip,
-    ),
-    use_container_width=True,
-    height=620,
-)
+# 사용자가 지도를 움직이면 중심/줌을 저장 → 다음 조회 위치가 됨.
+# st_folium 위젯 값이 바뀌면 Streamlit이 자동으로 rerun 하므로 명시적 rerun 불필요.
+if state and state.get("center"):
+    view["center"] = [state["center"]["lat"], state["center"]["lng"]]
+    view["zoom"] = state.get("zoom") or view["zoom"]
 
 # ── 요약 + 테이블 ─────────────────────────────────────────────────────────────
 table_rows = res["table_rows"]
 if table_rows:
-    counts = {}
+    counts: Dict[str, int] = {}
     for r in table_rows:
         counts[r["구분"]] = counts.get(r["구분"], 0) + 1
     cols = st.columns(len(counts))
@@ -387,4 +400,4 @@ if table_rows:
     st.divider()
     st.dataframe(pd.DataFrame(table_rows), use_container_width=True, hide_index=True, height=360)
 elif not res["errors"]:
-    st.info("상단 조건을 선택하고 '조회하고 지도에 표시'를 눌러주세요.")
+    st.info("지도를 움직여 위치를 정하고 '🔍 이 위치 조회'를 눌러주세요.")
