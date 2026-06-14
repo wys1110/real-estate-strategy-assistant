@@ -10,12 +10,12 @@
 from __future__ import annotations
 
 import os
-import urllib.request
 import urllib.parse
+import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Optional
+from typing import List, Optional
 
 _BASE = "https://apis.data.go.kr/1613000"
 
@@ -86,7 +86,7 @@ def _fetch_raw(endpoint: str, key: str, lawd_cd: str, deal_ymd: str, num_of_rows
         return resp.read()
 
 
-def _parse_items(raw: bytes, property_type: str, fetched_at: str) -> list[Transaction]:
+def _parse_items(raw: bytes, property_type: str, fetched_at: str) -> List[Transaction]:
     root = ET.fromstring(raw)
 
     result_code = _text(root.find(".//resultCode"))
@@ -95,7 +95,7 @@ def _parse_items(raw: bytes, property_type: str, fetched_at: str) -> list[Transa
         raise RuntimeError(f"API 오류 [{result_code}]: {result_msg}")
 
     name_tag = _NAME_TAG[property_type]
-    transactions: list[Transaction] = []
+    transactions: List[Transaction] = []
 
     for item in root.findall(".//item"):
         raw_price = _text(item.find("거래금액"))
@@ -139,7 +139,7 @@ def fetch_transactions(
     property_type: str = "villa",
     api_key: Optional[str] = None,
     num_of_rows: int = 100,
-) -> list[Transaction]:
+) -> List[Transaction]:
     """매매 실거래 목록을 반환합니다.
 
     Args:

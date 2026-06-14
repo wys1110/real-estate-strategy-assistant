@@ -39,12 +39,21 @@ https://www.neonet.co.kr/novo-rebank/view/offerings/inc_OfferingsList.neo?offeri
 - 데이터: 아파트/연립/다세대/단독/다가구/오피스텔 등 매매 및 전월세
 - 장점: 공식, 무료, 법적 리스크 낮음
 - 한계: 현재 호가가 아니라 신고된 거래 데이터
+- 현재 구현: 연립다세대 매매, 아파트 매매
 
 주요 후보:
 
-- 국토교통부 아파트 매매 실거래가 자료
-- 국토교통부 아파트 전월세 실거래가 자료
-- 국토교통부 실거래가 정보
+- 국토교통부 연립다세대 매매 실거래가 자료: `apis.data.go.kr/1613000/RTMSDataSvcRHTrade`
+- 국토교통부 아파트 매매 실거래가 자료: `apis.data.go.kr/1613000/RTMSDataSvcAptTrade`
+- 국토교통부 실거래가 공개시스템: `https://rt.molit.go.kr/`
+
+실행:
+
+```bash
+export MOLIT_API_KEY=공공데이터포털_일반_인증키
+PYTHONPATH=src python3 -m real_estate_strategy.cli transactions --deal-ymd 202605 --type villa
+PYTHONPATH=src python3 -m real_estate_strategy.cli transactions --deal-ymd 202605 --type apt
+```
 
 ## 3. 시세/통계
 

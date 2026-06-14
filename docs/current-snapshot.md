@@ -1,6 +1,6 @@
 # 현재 스냅샷
 
-기준일: 2026-06-14
+기준일: 2026-06-14 15:06 KST
 
 ## 질문
 
@@ -27,6 +27,8 @@
 - 부동산뱅크 HTML: 접근 가능
 - 부동산뱅크 첫 페이지: 전체 30건 파싱
 - 빌라/연립/다세대 계열: 16건 파싱
+- 최신 스냅샷: `snapshots/latest-jayang-villas.json`
+- 스냅샷에서는 중개사 연락처를 제외하고 가격/면적/층/원문 상세 URL만 보존
 
 샘플:
 
@@ -37,6 +39,24 @@
 | 빌라/다세대/연립 | 빌라 | 39/30㎡ | 고/6 | 100,000만원 |
 | 빌라/다세대/연립 | 빌라 | 49/50㎡ | 중/6 | 120,000만원 |
 | 연립/다세대 | 연립(694-2) | -/74㎡ | 고/3 | 190,000만원 |
+
+## GitHub 비교 결과
+
+2026-06-14 15시경 로컬 `main`은 GitHub `origin/main`보다 뒤처져 있었습니다.
+
+- `origin/main`: PR #1 merge로 `docs/requirements-from-chat.md` 추가
+- `origin/claude/code-analysis-planning-vetb19`: main보다 2커밋 앞섬
+- Claude 브랜치 추가 내용:
+  - `src/real_estate_strategy/molit.py`
+  - `transactions` CLI 커맨드
+  - 연립다세대/아파트 매매 실거래가 조회
+
+처리:
+
+- `origin/main`을 fast-forward로 반영
+- Claude 브랜치의 실거래가 코드 2커밋을 main에 cherry-pick
+- Python 3.7 호환 타입 표기로 보정
+- 최신 자양동 매물 스냅샷 저장
 
 ## 다음 개발 후보
 

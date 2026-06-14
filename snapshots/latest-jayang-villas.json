@@ -1,0 +1,193 @@
+{
+  "generated_at": "2026-06-14T06:06:30.857074+00:00",
+  "generated_at_kst": "2026-06-14T15:06:30+09:00",
+  "region": {
+    "name": "서울특별시 광진구 자양동",
+    "region_code": "1121510500"
+  },
+  "trade_type": "매매",
+  "source": "https://www.neonet.co.kr/novo-rebank/view/offerings/inc_OfferingsList.neo?offerings_gbn=SH&sub_offerings_gbn=&complex_cd=&offer_gbn=P&region_cd=1121510500&list_gbn=&agency_cd=&area=&price=&area_min=&area_max=&price_min=&price_max=&price_month=&price_month_min=&price_month_max=&building_no=&pyung_cd=&sort_list=&prc_sort=",
+  "source_kind": "current_listing_html",
+  "counts": {
+    "first_page_total_rows": 30,
+    "villa_like_rows": 16
+  },
+  "listings": [
+    {
+      "listing_id": "VG_137715623",
+      "listing_type": "연립/다세대",
+      "name": "뉴세화빌라",
+      "area_sqm": "-/71",
+      "floor": "중/4",
+      "price_manwon": "140,000",
+      "price_krw": 1400000000,
+      "note": "자양동모아주택B구역 투자가능,입주협의",
+      "detail_url": "https://www.neonet.co.kr/novo-rebank/view/offerings/OfferingsDetail.neo?offerings_cd=VG_137715623&offerings_gbn=VG&offer_gbn=P&region_cd=1121510500"
+    },
+    {
+      "listing_id": "VG_139965906",
+      "listing_type": "연립/다세대",
+      "name": "뉴세화빌라",
+      "area_sqm": "-/71",
+      "floor": "중/4",
+      "price_manwon": "140,000",
+      "price_krw": 1400000000,
+      "note": "자양B구역 투자가치좋음",
+      "detail_url": "https://www.neonet.co.kr/novo-rebank/view/offerings/OfferingsDetail.neo?offerings_cd=VG_139965906&offerings_gbn=VG&offer_gbn=P&region_cd=1121510500"
+    },
+    {
+      "listing_id": "VG_137652739",
+      "listing_type": "연립/다세대",
+      "name": "뉴세화빌라",
+      "area_sqm": "-/71",
+      "floor": "중/4",
+      "price_manwon": "140,000",
+      "price_krw": 1400000000,
+      "note": "자양B구역 투자가치좋음",
+      "detail_url": "https://www.neonet.co.kr/novo-rebank/view/offerings/OfferingsDetail.neo?offerings_cd=VG_137652739&offerings_gbn=VG&offer_gbn=P&region_cd=1121510500"
+    },
+    {
+      "listing_id": "VG_139567103",
+      "listing_type": "연립/다세대",
+      "name": "금강빌라",
+      "area_sqm": "-/65",
+      "floor": "고/3",
+      "price_manwon": "215,000",
+      "price_krw": 2150000000,
+      "note": "자양7구역,입주가능",
+      "detail_url": "https://www.neonet.co.kr/novo-rebank/view/offerings/OfferingsDetail.neo?offerings_cd=VG_139567103&offerings_gbn=VG&offer_gbn=P&region_cd=1121510500"
+    },
+    {
+      "listing_id": "VG_136022505",
+      "listing_type": "연립/다세대",
+      "name": "금강빌라",
+      "area_sqm": "-/65",
+      "floor": "고/3",
+      "price_manwon": "215,000",
+      "price_krw": 2150000000,
+      "note": "자양7구역,입주가능",
+      "detail_url": "https://www.neonet.co.kr/novo-rebank/view/offerings/OfferingsDetail.neo?offerings_cd=VG_136022505&offerings_gbn=VG&offer_gbn=P&region_cd=1121510500"
+    },
+    {
+      "listing_id": "VG_140558536",
+      "listing_type": "연립/다세대",
+      "name": "연립(694-2)",
+      "area_sqm": "-/74",
+      "floor": "고/3",
+      "price_manwon": "190,000",
+      "price_krw": 1900000000,
+      "note": "재건축투자,84type입주권,한강뷰",
+      "detail_url": "https://www.neonet.co.kr/novo-rebank/view/offerings/OfferingsDetail.neo?offerings_cd=VG_140558536&offerings_gbn=VG&offer_gbn=P&region_cd=1121510500"
+    },
+    {
+      "listing_id": "CH_140567007",
+      "listing_type": "빌라/다세대/연립",
+      "name": "빌라",
+      "area_sqm": "49/50",
+      "floor": "중/6",
+      "price_manwon": "120,000",
+      "price_krw": 1200000000,
+      "note": "한강변 호재 빌라 매매 입주협의",
+      "detail_url": "https://www.neonet.co.kr/novo-rebank/view/offerings/OfferingsDetail.neo?offerings_cd=CH_140567007&offerings_gbn=SH&offer_gbn=P&region_cd=1121510500"
+    },
+    {
+      "listing_id": "CH_140574752",
+      "listing_type": "빌라/다세대/연립",
+      "name": "빌라",
+      "area_sqm": "39/30",
+      "floor": "고/6",
+      "price_manwon": "100,000",
+      "price_krw": 1000000000,
+      "note": "자양2동 한강변 모아타운선정 b구역 조합설립인가를 위한...",
+      "detail_url": "https://www.neonet.co.kr/novo-rebank/view/offerings/OfferingsDetail.neo?offerings_cd=CH_140574752&offerings_gbn=SH&offer_gbn=P&region_cd=1121510500"
+    },
+    {
+      "listing_id": "CH_140526827",
+      "listing_type": "빌라/다세대/연립",
+      "name": "빌라",
+      "area_sqm": "39/30",
+      "floor": "고/6",
+      "price_manwon": "100,000",
+      "price_krw": 1000000000,
+      "note": "한강변모아타운조합설립추진중 투자,입주모두가능",
+      "detail_url": "https://www.neonet.co.kr/novo-rebank/view/offerings/OfferingsDetail.neo?offerings_cd=CH_140526827&offerings_gbn=SH&offer_gbn=P&region_cd=1121510500"
+    },
+    {
+      "listing_id": "CH_140526751",
+      "listing_type": "빌라/다세대/연립",
+      "name": "빌라",
+      "area_sqm": "44/37",
+      "floor": "2/5",
+      "price_manwon": "90,000",
+      "price_krw": 900000000,
+      "note": "한강변모아타운선정B구역 조합설인인가추진중 입주.투자모두가능",
+      "detail_url": "https://www.neonet.co.kr/novo-rebank/view/offerings/OfferingsDetail.neo?offerings_cd=CH_140526751&offerings_gbn=SH&offer_gbn=P&region_cd=1121510500"
+    },
+    {
+      "listing_id": "CH_140511423",
+      "listing_type": "빌라/다세대/연립",
+      "name": "빌라",
+      "area_sqm": "32/33",
+      "floor": "1/2",
+      "price_manwon": "25,000",
+      "price_krw": 250000000,
+      "note": "구의역 인근 저렴한 투룸 빌라 매매",
+      "detail_url": "https://www.neonet.co.kr/novo-rebank/view/offerings/OfferingsDetail.neo?offerings_cd=CH_140511423&offerings_gbn=SH&offer_gbn=P&region_cd=1121510500"
+    },
+    {
+      "listing_id": "CH_140525885",
+      "listing_type": "빌라/다세대/연립",
+      "name": "빌라",
+      "area_sqm": "47/43",
+      "floor": "4/5",
+      "price_manwon": "95,000",
+      "price_krw": 950000000,
+      "note": "자양한강변B구역 조합설립총회 임사자승계 26/12월입주가...",
+      "detail_url": "https://www.neonet.co.kr/novo-rebank/view/offerings/OfferingsDetail.neo?offerings_cd=CH_140525885&offerings_gbn=SH&offer_gbn=P&region_cd=1121510500"
+    },
+    {
+      "listing_id": "VG_140537048",
+      "listing_type": "연립/다세대",
+      "name": "해비치빌(774-1)",
+      "area_sqm": "-/47",
+      "floor": "고/5",
+      "price_manwon": "97,000",
+      "price_krw": 970000000,
+      "note": "건대 모아타운 투룸 갭투자 매매 조합설립이가동의서 완료",
+      "detail_url": "https://www.neonet.co.kr/novo-rebank/view/offerings/OfferingsDetail.neo?offerings_cd=VG_140537048&offerings_gbn=VG&offer_gbn=P&region_cd=1121510500"
+    },
+    {
+      "listing_id": "CH_140527196",
+      "listing_type": "빌라/다세대/연립",
+      "name": "빌라",
+      "area_sqm": "72/67",
+      "floor": "4/4",
+      "price_manwon": "120,000",
+      "price_krw": 1200000000,
+      "note": "지분많음 추천매물 전용20평 조합설립임박",
+      "detail_url": "https://www.neonet.co.kr/novo-rebank/view/offerings/OfferingsDetail.neo?offerings_cd=CH_140527196&offerings_gbn=SH&offer_gbn=P&region_cd=1121510500"
+    },
+    {
+      "listing_id": "CH_140537004",
+      "listing_type": "빌라/다세대/연립",
+      "name": "빌라",
+      "area_sqm": "56/46",
+      "floor": "3/4",
+      "price_manwon": "99,000",
+      "price_krw": 990000000,
+      "note": "핫한 한강변 자양2동모아타운 B구역 투룸...",
+      "detail_url": "https://www.neonet.co.kr/novo-rebank/view/offerings/OfferingsDetail.neo?offerings_cd=CH_140537004&offerings_gbn=SH&offer_gbn=P&region_cd=1121510500"
+    },
+    {
+      "listing_id": "CH_140536558",
+      "listing_type": "빌라/다세대/연립",
+      "name": "빌라",
+      "area_sqm": "109/78",
+      "floor": "1/4",
+      "price_manwon": "125,000",
+      "price_krw": 1250000000,
+      "note": "조합설립인가준비중 핫한쓰리룸",
+      "detail_url": "https://www.neonet.co.kr/novo-rebank/view/offerings/OfferingsDetail.neo?offerings_cd=CH_140536558&offerings_gbn=SH&offer_gbn=P&region_cd=1121510500"
+    }
+  ]
+}
