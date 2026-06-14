@@ -28,6 +28,15 @@ from real_estate_strategy.budongsanbank import (
     parse_listings,
 )
 from real_estate_strategy.molit import PROPERTY_TYPES, fetch_transactions
+from real_estate_strategy.redevelopment import (
+    DISTRICT_CODES,
+    INVESTMENT_STAGES,
+    STAGE_PROGRESS,
+    STAGES,
+    RedevelopmentZone,
+    enrich_scores,
+    fetch_zones,
+)
 
 st.set_page_config(page_title="부동산 전략 어시스턴트", page_icon="🏠", layout="wide")
 st.title("부동산 전략 어시스턴트")
@@ -89,7 +98,9 @@ LAWD_OPTIONS = {
     "서울 광진구 (11215)": "11215",
 }
 
-tab_listing, tab_tx, tab_compare, tab_map = st.tabs(["📋 매물 호가", "💰 실거래가", "🔍 비교", "🗺️ 지도"])
+tab_listing, tab_tx, tab_compare, tab_map, tab_redev = st.tabs(
+    ["📋 매물 호가", "💰 실거래가", "🔍 비교", "🗺️ 지도", "🏗️ 재개발 추천"]
+)
 
 # ── 매물 호가 (부동산뱅크) ──
 with tab_listing:
@@ -345,12 +356,170 @@ with tab_map:
         elif not pins:
             st.info("표시할 데이터가 없습니다. 위 체크박스를 선택하고 버튼을 누르세요.")
 
+# ── 재개발 추천 탭 ──
+with tab_redev:
+    st.subheader("서울 재개발/재건축 추천")
+    st.caption("데이터 출처: 서울시 정비사업 정보몽땅 (cleanup.seoul.go.kr)")
+
+    rc1, rc2 = st.columns(2)
+    with rc1:
+        sel_districts = st.multiselect(
+            "자치구 선택",
+            list(DISTRICT_CODES.keys()),
+            default=["강동구", "성동구", "용산구"],
+            key="redev_districts",
+        )
+    with rc2:
+        sel_stages = st.multiselect(
+            "진행단계 필터",
+            STAGES,
+            default=INVESTMENT_STAGES,
+            key="redev_stages",
+        )
+
+    rc3, rc4 = st.columns(2)
+    with rc3:
+        only_redev = st.checkbox("재개발만 (재건축 제외)", key="redev_only_redev")
+    with rc4:
+        show_redev_map = st.checkbox("지도에 표시", value=True, key="redev_show_map")
+
+    if st.button("재개발 구역 조회", key="btn_redev", type="primary"):
+        if not sel_districts:
+            st.warning("자치구를 1개 이상 선택하세요.")
+        else:
+            all_zones = []
+            progress = st.progress(0, text="정비사업 데이터 수집 중...")
+            for i, district in enumerate(sel_districts):
+                progress.progress(
+                    (i + 1) / len(sel_districts),
+                    text=f"{district} 조회 중... ({i+1}/{len(sel_districts)})",
+                )
+                try:
+                    zones, _ = fetch_zones(DISTRICT_CODES[district], page_size=200)
+                    all_zones.extend(zones)
+                except Exception as e:
+                    st.warning(f"{district} 조회 실패: {e}")
+            progress.empty()
+
+            if sel_stages:
+                all_zones = [z for z in all_zones if z.stage in sel_stages]
+            if only_redev:
+                all_zones = [z for z in all_zones if "재개발" in z.biz_type]
+
+            enrich_scores(all_zones)
+            all_zones.sort(key=lambda z: z.score, reverse=True)
+
+            st.session_state["redev_zones"] = all_zones
+
+            if not all_zones:
+                st.warning("조건에 맞는 구역이 없습니다.")
+            else:
+                st.success(f"총 {len(all_zones)}개 구역 조회 완료")
+
+                rows = []
+                for z in all_zones:
+                    rows.append({
+                        "추천점수": z.score,
+                        "자치구": z.district,
+                        "사업구분": z.biz_type,
+                        "사업장명": z.name,
+                        "대표지번": z.address,
+                        "진행단계": z.stage,
+                        "진행률(%)": z.progress,
+                    })
+                df = pd.DataFrame(rows)
+                st.dataframe(
+                    df,
+                    use_container_width=True,
+                    column_config={
+                        "추천점수": st.column_config.ProgressColumn(
+                            "추천점수", min_value=0, max_value=100, format="%.0f",
+                        ),
+                        "진행률(%)": st.column_config.ProgressColumn(
+                            "진행률", min_value=0, max_value=100, format="%d%%",
+                        ),
+                    },
+                )
+
+                stage_counts = {}
+                for z in all_zones:
+                    stage_counts[z.stage] = stage_counts.get(z.stage, 0) + 1
+                sc1, sc2, sc3 = st.columns(3)
+                sc1.metric("조회 구역 수", f"{len(all_zones)}건")
+                top_stage = max(stage_counts, key=stage_counts.get)
+                sc2.metric("최다 단계", f"{top_stage} ({stage_counts[top_stage]}건)")
+                avg_score = sum(z.score for z in all_zones) / len(all_zones)
+                sc3.metric("평균 추천점수", f"{avg_score:.1f}")
+
+                st.divider()
+                st.markdown("##### 단계별 분포")
+                chart_data = pd.DataFrame(
+                    [{"단계": s, "구역 수": stage_counts.get(s, 0)} for s in STAGES]
+                )
+                st.bar_chart(chart_data, x="단계", y="구역 수")
+
+                if show_redev_map:
+                    st.divider()
+                    st.markdown("##### 재개발 구역 지도")
+                    SEOUL_CENTER = (37.5665, 126.9780)
+                    m = folium.Map(location=list(SEOUL_CENTER), zoom_start=11)
+                    geo_progress = st.progress(0, text="구역 위치 변환 중...")
+                    geocoded = 0
+                    for i, z in enumerate(all_zones):
+                        geo_progress.progress(
+                            (i + 1) / len(all_zones),
+                            text=f"지오코딩 {i+1}/{len(all_zones)}",
+                        )
+                        addr = f"서울특별시 {z.district} {z.address}"
+                        (lat, lon), is_exact = _geocode(addr)
+                        z.lat = lat
+                        z.lon = lon
+                        geocoded += int(is_exact)
+
+                        if z.score >= 80:
+                            color = "red"
+                        elif z.score >= 60:
+                            color = "orange"
+                        elif z.score >= 40:
+                            color = "blue"
+                        else:
+                            color = "gray"
+
+                        popup_html = (
+                            f"<b>{z.name}</b><br>"
+                            f"구: {z.district}<br>"
+                            f"유형: {z.biz_type}<br>"
+                            f"단계: {z.stage} ({z.progress}%)<br>"
+                            f"<b>추천점수: {z.score:.0f}</b>"
+                        )
+                        if not is_exact:
+                            popup_html += "<br><i>(근사 위치)</i>"
+                        folium.CircleMarker(
+                            [lat, lon],
+                            radius=max(5, z.score / 10),
+                            popup=folium.Popup(popup_html, max_width=280),
+                            tooltip=f"{z.name} ({z.score:.0f}점)",
+                            color=color,
+                            fill=True,
+                            fill_opacity=0.7,
+                        ).add_to(m)
+                    geo_progress.empty()
+
+                    st_folium(m, height=550, use_container_width=True)
+                    st.caption(
+                        f"🔴 80점↑ | 🟠 60~79점 | 🔵 40~59점 | ⚪ 39점↓ — "
+                        f"정확 좌표 {geocoded}건, 근사 좌표 {len(all_zones)-geocoded}건"
+                    )
+
+                st.info("data_type: reference (cleanup.seoul.go.kr 정비사업 정보)")
+
 # ── 사이드바 ──
 with st.sidebar:
     st.markdown("### 데이터 출처")
     st.markdown("""
     - **매물 호가**: [부동산뱅크](https://www.neonet.co.kr) (현재 매물)
     - **실거래가**: [국토교통부 공공데이터](https://www.data.go.kr) (신고 실거래)
+    - **재개발**: [정비사업 정보몽땅](https://cleanup.seoul.go.kr) (서울시 공식)
     """)
     st.divider()
     st.markdown("### 참고")
