@@ -20,14 +20,14 @@ from typing import List, Optional
 _BASE = "https://apis.data.go.kr/1613000"
 
 _ENDPOINTS = {
-    "villa": f"{_BASE}/RTMSDataSvcRHTrade/getRHTradePriceList",
-    "apt":   f"{_BASE}/RTMSDataSvcAptTrade/getAptTradePriceList",
+    "villa": f"{_BASE}/RTMSDataSvcRHTrade/getRTMSDataSvcRHTrade",
+    "apt":   f"{_BASE}/RTMSDataSvcAptTrade/getRTMSDataSvcAptTrade",
 }
 
 # 각 유형별로 건물명이 담긴 XML 태그가 다름
 _NAME_TAG = {
-    "villa": "연립다세대",
-    "apt":   "아파트",
+    "villa": ("mhouseNm", "연립다세대"),
+    "apt":   ("aptNm", "아파트"),
 }
 
 PROPERTY_TYPES = tuple(_ENDPOINTS.keys())
@@ -57,6 +57,14 @@ def _text(elem: Optional[ET.Element]) -> str:
     if elem is None:
         return ""
     return (elem.text or "").strip()
+
+
+def _first_text(item: ET.Element, *names: str) -> str:
+    for name in names:
+        value = _text(item.find(name))
+        if value:
+            return value
+    return ""
 
 
 def _price_to_manwon(raw: str) -> int:
@@ -91,37 +99,37 @@ def _parse_items(raw: bytes, property_type: str, fetched_at: str) -> List[Transa
 
     result_code = _text(root.find(".//resultCode"))
     result_msg  = _text(root.find(".//resultMsg"))
-    if result_code not in ("00", "0000", ""):
+    if result_code not in ("00", "000", "0000", ""):
         raise RuntimeError(f"API 오류 [{result_code}]: {result_msg}")
 
-    name_tag = _NAME_TAG[property_type]
+    name_tags = _NAME_TAG[property_type]
     transactions: List[Transaction] = []
 
     for item in root.findall(".//item"):
-        raw_price = _text(item.find("거래금액"))
+        raw_price = _first_text(item, "dealAmount", "거래금액")
         if not raw_price:
             continue
 
         price_manwon = _price_to_manwon(raw_price)
 
-        raw_area  = _text(item.find("전용면적"))
+        raw_area  = _first_text(item, "excluUseAr", "전용면적")
         area_sqm  = float(raw_area) if raw_area else 0.0
 
-        raw_floor = _text(item.find("층"))
+        raw_floor = _first_text(item, "floor", "층")
         floor     = int(raw_floor) if raw_floor.lstrip("-").isdigit() else None
 
-        raw_build  = _text(item.find("건축년도"))
+        raw_build  = _first_text(item, "buildYear", "건축년도")
         build_year = int(raw_build) if raw_build.isdigit() else None
 
         transactions.append(Transaction(
             data_type="actual_transaction",
             property_type=property_type,
-            deal_year=int(_text(item.find("년")) or "0"),
-            deal_month=int(_text(item.find("월")) or "0"),
-            deal_day=int(_text(item.find("일")) or "0"),
-            name=_text(item.find(name_tag)),
-            dong=_text(item.find("법정동")),
-            lot_number=_text(item.find("지번")),
+            deal_year=int(_first_text(item, "dealYear", "년") or "0"),
+            deal_month=int(_first_text(item, "dealMonth", "월") or "0"),
+            deal_day=int(_first_text(item, "dealDay", "일") or "0"),
+            name=_first_text(item, *name_tags),
+            dong=_first_text(item, "umdNm", "법정동"),
+            lot_number=_first_text(item, "jibun", "지번"),
             area_sqm=area_sqm,
             floor=floor,
             build_year=build_year,
