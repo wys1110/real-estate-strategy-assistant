@@ -36,12 +36,13 @@ from real_estate_strategy.poi import ELEMENTARY_SCHOOLS, SHUTTLE_STOPS, SUBWAY_S
 st.set_page_config(page_title="부동산 전략 어시스턴트", page_icon="🏠", layout="wide")
 st.markdown("<style>.block-container{padding-top:1.5rem}</style>", unsafe_allow_html=True)
 
-JAYANG_CENTER = (37.5350, 127.0700)
-SEOUL_CENTER  = (37.5665, 126.9780)
-REGION_OPTIONS = {"서울 광진구 자양동": "1121510500"}
-LAWD_OPTIONS   = {"서울 광진구": "11215"}
-MODE_OPTIONS   = ["통합", "매물", "실거래", "재개발"]
-GEO_CACHE_VERSION = "v4"
+SEOUL_CENTER = (37.5665, 126.9780)
+MODE_OPTIONS = ["통합", "매물", "실거래", "재개발"]
+GEO_CACHE_VERSION = "v5"
+
+# BudongsanBank 구별 region code (5자리 district code + '00000')
+BBANK_CODES: Dict[str, str] = {k: v.zfill(5) + "00000" for k, v in DISTRICT_CODES.items()}
+BBANK_CODES["광진구"] = "1121510500"  # 동작 확인된 코드
 
 DISTRICT_CENTERS: Dict[str, Tuple[float, float]] = {
     "종로구": (37.5735, 126.9788), "중구": (37.5636, 126.9976),
@@ -133,32 +134,36 @@ def _make_row(lat, lng, label, name, info1="", info2="", info3="", color=None, r
                 r=r, g=g, b=b, a=a, radius=radius)
 
 
-def _listing_rows(limit: int) -> List[dict]:
-    url = build_list_url(REGION_OPTIONS["서울 광진구 자양동"])
+def _listing_rows(district: str, limit: int) -> List[dict]:
+    region_code = BBANK_CODES.get(district, BBANK_CODES["광진구"])
+    center = DISTRICT_CENTERS.get(district, SEOUL_CENTER)
+    url = build_list_url(region_code)
     listings = filter_villas(parse_listings(fetch_html(url), source_url=url))[:limit]
     rows = []
     for li in listings:
-        lat, lng = _geocode("서울특별시 광진구 자양동 " + li.name, JAYANG_CENTER)
+        lat, lng = _geocode(f"서울특별시 {district} {li.name}", center)
         rows.append(_make_row(
             lat, lng, "🔴 매물 (호가)", li.name,
             info1=f"{li.area_sqm}㎡ | {li.floor}층",
-            info2=f"호가 {li.price_manwon:,}만원",
+            info2=f"호가 {li.price_manwon}만원",
             info3=li.note[:60],
             color=_C["listing"],
         ))
     return rows
 
 
-def _transaction_rows(api_key: str, deal_ymd: str, property_type: str, limit: int) -> List[dict]:
+def _transaction_rows(district: str, api_key: str, deal_ymd: str, property_type: str, limit: int) -> List[dict]:
+    lawd_cd = DISTRICT_CODES.get(district, "11215")
+    center = DISTRICT_CENTERS.get(district, SEOUL_CENTER)
     txs = fetch_transactions(
-        lawd_cd=LAWD_OPTIONS["서울 광진구"],
+        lawd_cd=lawd_cd,
         deal_ymd=deal_ymd, property_type=property_type,
         api_key=api_key,
     )[:limit]
     rows = []
     for t in txs:
-        addr = f"서울특별시 광진구 {t.dong} {t.lot_number}"
-        lat, lng = _geocode(addr, JAYANG_CENTER)
+        addr = f"서울특별시 {district} {t.dong} {t.lot_number}"
+        lat, lng = _geocode(addr, center)
         rows.append(_make_row(
             lat, lng, "🔵 실거래", t.name,
             info1=f"{t.area_sqm}㎡ | {t.floor}층",
@@ -239,19 +244,23 @@ with st.sidebar:
 
 mode = st.radio("모드", MODE_OPTIONS, horizontal=True, index=0)
 
-ctrl = st.columns([1.2, 1, 1, 1, 1])
+_district_list = list(DISTRICT_CENTERS.keys())
+ctrl = st.columns([1.5, 1.2, 1, 1, 1, 1])
 with ctrl[0]:
-    listing_limit = st.number_input("매물 수", 1, 80, 15)
+    district = st.selectbox("🗺️ 구 선택", _district_list,
+                            index=_district_list.index("광진구"))
 with ctrl[1]:
-    deal_ymd = st.text_input("계약년월", value="202501")
+    listing_limit = st.number_input("매물 수", 1, 80, 15)
 with ctrl[2]:
+    deal_ymd = st.text_input("계약년월", value="202501")
+with ctrl[3]:
     property_type = st.selectbox(
         "실거래 유형", list(PROPERTY_TYPES),
         format_func=lambda x: "연립다세대" if x == "villa" else "아파트",
     )
-with ctrl[3]:
-    transaction_limit = st.number_input("실거래 수", 1, 200, 20)
 with ctrl[4]:
+    transaction_limit = st.number_input("실거래 수", 1, 200, 20)
+with ctrl[5]:
     redev_limit = st.number_input("구역 수", 1, 100, 25)
 
 redev_cols = st.columns([2, 2, 1])
@@ -275,7 +284,7 @@ if st.button("조회하고 지도에 표시", type="primary", use_container_widt
     if mode in ("통합", "매물"):
         with st.spinner("매물 호가 조회 중..."):
             try:
-                rows = _listing_rows(listing_limit)
+                rows = _listing_rows(district, listing_limit)
                 map_rows.extend(rows)
                 for r in rows:
                     table_rows.append({"구분": "매물", "건물명": r["name"],
@@ -289,7 +298,7 @@ if st.button("조회하고 지도에 표시", type="primary", use_container_widt
         else:
             with st.spinner("실거래가 조회 중..."):
                 try:
-                    rows = _transaction_rows(api_key, deal_ymd, property_type, transaction_limit)
+                    rows = _transaction_rows(district, api_key, deal_ymd, property_type, transaction_limit)
                     map_rows.extend(rows)
                     for r in rows:
                         table_rows.append({"구분": "실거래", "건물명": r["name"],
@@ -312,7 +321,7 @@ if st.button("조회하고 지도에 표시", type="primary", use_container_widt
                     errors.append(f"재개발 조회 실패: {e}")
 
     st.session_state["results"] = {"map_rows": map_rows, "table_rows": table_rows,
-                                   "errors": errors, "mode": mode}
+                                   "errors": errors, "mode": mode, "district": district}
     st.rerun()
 
 res = st.session_state.get("results", {"map_rows": [], "table_rows": [], "errors": [], "mode": mode})
@@ -323,7 +332,8 @@ for err in res["errors"]:
 poi_rows = _poi_rows(show_subway, show_school, show_hynix, show_samsung)
 all_rows = res["map_rows"] + poi_rows
 
-center = SEOUL_CENTER if res["mode"] == "재개발" else JAYANG_CENTER
+_res_district = res.get("district", district)
+center = SEOUL_CENTER if res["mode"] == "재개발" else DISTRICT_CENTERS.get(_res_district, SEOUL_CENTER)
 zoom   = 11 if res["mode"] == "재개발" else 14
 
 tooltip = {
