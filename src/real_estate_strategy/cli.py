@@ -22,6 +22,8 @@ def main(argv=None) -> int:
     tx_parser = subparsers.add_parser("transactions", help="Fetch actual transaction prices from MOLIT (국토부)")
     tx_parser.add_argument("--lawd-cd", default="11215", help="법정동코드 앞 5자리 (기본: 11215 광진구)")
     tx_parser.add_argument("--deal-ymd", required=True, help="계약년월 6자리 (예: 202605)")
+    tx_parser.add_argument("--type", dest="property_type", choices=("villa", "apt"), default="villa",
+                           help="villa=연립다세대(기본), apt=아파트")
     tx_parser.add_argument("--limit", type=int, default=50)
     tx_parser.add_argument("--format", choices=("table", "json", "csv"), default="table")
 
@@ -78,7 +80,7 @@ def _fetch(args) -> int:
 
 def _transactions(args) -> int:
     try:
-        txs = fetch_transactions(lawd_cd=args.lawd_cd, deal_ymd=args.deal_ymd)
+        txs = fetch_transactions(lawd_cd=args.lawd_cd, deal_ymd=args.deal_ymd, property_type=args.property_type)
     except ValueError as e:
         print(f"오류: {e}", file=sys.stderr)
         return 1
