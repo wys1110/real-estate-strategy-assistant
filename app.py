@@ -43,6 +43,69 @@ SEOUL_CENTER = (37.5665, 126.9780)
 REGION_OPTIONS = {"서울 광진구 자양동": "1121510500"}
 LAWD_OPTIONS = {"서울 광진구": "11215"}
 MODE_OPTIONS = ["통합", "매물", "실거래", "재개발"]
+GEO_CACHE_VERSION = "v3"
+
+DISTRICT_CENTERS: Dict[str, Tuple[float, float]] = {
+    "종로구": (37.5735, 126.9788),
+    "중구": (37.5636, 126.9976),
+    "용산구": (37.5326, 126.9905),
+    "성동구": (37.5634, 127.0369),
+    "광진구": (37.5384, 127.0823),
+    "동대문구": (37.5744, 127.0396),
+    "중랑구": (37.6063, 127.0925),
+    "성북구": (37.5894, 127.0167),
+    "강북구": (37.6396, 127.0257),
+    "도봉구": (37.6688, 127.0471),
+    "노원구": (37.6542, 127.0568),
+    "은평구": (37.6176, 126.9227),
+    "서대문구": (37.5791, 126.9368),
+    "마포구": (37.5663, 126.9019),
+    "양천구": (37.5169, 126.8664),
+    "강서구": (37.5509, 126.8495),
+    "구로구": (37.4955, 126.8875),
+    "금천구": (37.4569, 126.8955),
+    "영등포구": (37.5264, 126.8962),
+    "동작구": (37.5124, 126.9393),
+    "관악구": (37.4784, 126.9516),
+    "서초구": (37.4837, 127.0324),
+    "강남구": (37.5172, 127.0473),
+    "송파구": (37.5145, 127.1059),
+    "강동구": (37.5301, 127.1238),
+}
+
+DONG_CENTERS: Dict[str, Tuple[float, float]] = {
+    "자양동": (37.5350, 127.0700),
+    "화양동": (37.5441, 127.0690),
+    "군자동": (37.5550, 127.0750),
+    "능동": (37.5530, 127.0810),
+    "구의동": (37.5437, 127.0868),
+    "광장동": (37.5471, 127.1041),
+    "중곡동": (37.5607, 127.0801),
+    "성수동1가": (37.5432, 127.0443),
+    "성수동2가": (37.5398, 127.0567),
+    "송정동": (37.5546, 127.0688),
+    "용답동": (37.5638, 127.0548),
+    "행당동": (37.5588, 127.0292),
+    "금호동1가": (37.5548, 127.0242),
+    "금호동2가": (37.5531, 127.0211),
+    "금호동3가": (37.5489, 127.0210),
+    "금호동4가": (37.5472, 127.0218),
+    "옥수동": (37.5434, 127.0139),
+    "마장동": (37.5663, 127.0424),
+    "사근동": (37.5614, 127.0458),
+    "응봉동": (37.5504, 127.0339),
+    "하왕십리동": (37.5640, 127.0284),
+    "상왕십리동": (37.5693, 127.0246),
+    "고덕동": (37.5606, 127.1577),
+    "상일동": (37.5515, 127.1708),
+    "명일동": (37.5513, 127.1440),
+    "암사동": (37.5504, 127.1276),
+    "천호동": (37.5444, 127.1246),
+    "성내동": (37.5316, 127.1290),
+    "길동": (37.5392, 127.1460),
+    "둔촌동": (37.5218, 127.1367),
+    "강일동": (37.5655, 127.1743),
+}
 
 
 def _get_secret(key: str, default: str = "") -> str:
@@ -67,17 +130,30 @@ def _nominatim_search(address: str):
     return None
 
 
-def _approx_coords(seed: str, center: Tuple[float, float] = JAYANG_CENTER) -> Tuple[float, float]:
+def _address_anchor(address: str, fallback: Tuple[float, float]) -> Tuple[Tuple[float, float], str, float]:
+    """주소에 포함된 동/구 이름으로 근사 좌표의 기준점을 정합니다."""
+    for token, center in sorted(DONG_CENTERS.items(), key=lambda item: len(item[0]), reverse=True):
+        if token in address:
+            return center, "동 기준 근사 위치", 0.0016
+    for token, center in sorted(DISTRICT_CENTERS.items(), key=lambda item: len(item[0]), reverse=True):
+        if token in address:
+            return center, "구 기준 근사 위치", 0.0055
+    return fallback, "서울 기준 근사 위치", 0.012
+
+
+def _approx_coords(seed: str, center: Tuple[float, float], radius: float) -> Tuple[float, float]:
     h = int(hashlib.md5(seed.encode()).hexdigest(), 16)
+    lat_offset = (((h % 10000) / 9999) - 0.5) * 2 * radius
+    lon_offset = ((((h >> 16) % 10000) / 9999) - 0.5) * 2 * radius
     return (
-        center[0] + ((h % 1000) - 500) * 0.000007,
-        center[1] + (((h >> 10) % 1000) - 500) * 0.000007,
+        center[0] + lat_offset,
+        center[1] + lon_offset,
     )
 
 
 def _geocode(address: str, exact: bool, center: Tuple[float, float]):
-    """주소 -> ((lat, lon), is_exact). 기본은 빠른 근사 좌표."""
-    cache_key = f"{'exact' if exact else 'fast'}::{address}"
+    """주소 -> ((lat, lon), precision_label). 기본은 동/구 기준 빠른 근사 좌표."""
+    cache_key = f"{GEO_CACHE_VERSION}::{'exact' if exact else 'fast'}::{address}"
     cache = st.session_state.setdefault("_geo_cache", {})
     if cache_key in cache:
         return cache[cache_key]
@@ -85,11 +161,12 @@ def _geocode(address: str, exact: bool, center: Tuple[float, float]):
     if exact:
         coords = _nominatim_search(address)
         if coords:
-            cache[cache_key] = (coords, True)
+            cache[cache_key] = (coords, "주소 조회 위치")
             time.sleep(1.1)
             return cache[cache_key]
 
-    cache[cache_key] = (_approx_coords(address, center), False)
+    anchor, precision, radius = _address_anchor(address, center)
+    cache[cache_key] = (_approx_coords(address, anchor, radius), precision)
     return cache[cache_key]
 
 
@@ -238,14 +315,16 @@ def _render_map(pins: List[Dict], exact_geocode: bool, center: Tuple[float, floa
         coords_map[address] = _geocode(address, exact=exact_geocode, center=center)
     progress.empty()
 
-    exact_count = 0
+    lookup_count = 0
+    mapped_coords: List[Tuple[float, float]] = []
     for pin in pins:
-        (lat, lon), is_exact = coords_map[pin["address"]]
-        exact_count += int(is_exact)
+        (lat, lon), precision = coords_map[pin["address"]]
+        mapped_coords.append((lat, lon))
+        lookup_count += int(precision == "주소 조회 위치")
         color, icon = _pin_style(pin)
         popup_html = f"<b>{pin['label']}</b><br>{pin['price']}<br>{pin['detail']}"
-        if not is_exact:
-            popup_html += "<br><i>근사 위치</i>"
+        if precision != "주소 조회 위치":
+            popup_html += f"<br><i>{precision}</i>"
         folium.Marker(
             [lat, lon],
             tooltip=pin["label"],
@@ -253,10 +332,20 @@ def _render_map(pins: List[Dict], exact_geocode: bool, center: Tuple[float, floa
             icon=folium.Icon(color=color, icon=icon),
         ).add_to(m)
 
+    if mapped_coords:
+        lats = [lat for lat, _ in mapped_coords]
+        lons = [lon for _, lon in mapped_coords]
+        if len(mapped_coords) == 1:
+            lat, lon = mapped_coords[0]
+            bounds = [[lat - 0.003, lon - 0.003], [lat + 0.003, lon + 0.003]]
+        else:
+            bounds = [[min(lats), min(lons)], [max(lats), max(lons)]]
+        m.fit_bounds(bounds, padding=(24, 24))
+
     st_folium(m, height=560, width=None)
     st.caption(
         f"빨강=매물 | 파랑=실거래 | 별=재개발 — 총 {len(pins)}개 위치, "
-        f"정확 좌표 {exact_count}개, 근사 좌표 {len(pins) - exact_count}개"
+        f"주소 조회 {lookup_count}개, 동/구 근사 {len(pins) - lookup_count}개"
     )
 
 
@@ -327,7 +416,7 @@ mode = st.radio("모드", MODE_OPTIONS, horizontal=True, index=0)
 
 control_cols = st.columns([1.2, 1, 1, 1, 1])
 with control_cols[0]:
-    exact_geocode = st.checkbox("정확 좌표 조회", value=False, help="느릴 수 있습니다. 기본은 빠른 근사 위치입니다.")
+    exact_geocode = st.checkbox("주소 좌표 조회", value=False, help="느릴 수 있습니다. 기본은 빠른 동/구 기준 근사 위치입니다.")
 with control_cols[1]:
     listing_limit = st.number_input("매물 수", min_value=1, max_value=80, value=15)
 with control_cols[2]:
