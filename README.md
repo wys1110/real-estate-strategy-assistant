@@ -61,6 +61,7 @@ src/real_estate_strategy/
   molit.py          # 국토교통부 실거래가 API fetch/parse
   cli.py            # CLI 진입점
 docs/
+  api-setup.md      # 국토부 API 설정/엔드포인트 정리
   data-sources.md   # 데이터 소스별 가능/불가능 범위
   current-snapshot.md
 snapshots/

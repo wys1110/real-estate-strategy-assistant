@@ -35,6 +35,7 @@ MOLIT_API_KEY=... PYTHONPATH=src python3 -m real_estate_strategy.cli transaction
 
 - `budongsanbank.py`: current listing asking prices from HTML.
 - `molit.py`: official actual transaction prices from MOLIT public data APIs.
+- `docs/api-setup.md`: API endpoints, required parameters, and credential handling rules.
 - Future REB module: market index/statistics, not individual listings.
 
 ## Verification Checklist
