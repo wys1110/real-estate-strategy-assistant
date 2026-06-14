@@ -6,11 +6,18 @@
 from __future__ import annotations
 
 import dataclasses
+import hashlib
+import json
 import os
 import sys
+import time
+import urllib.parse
+import urllib.request
 
+import folium
 import pandas as pd
 import streamlit as st
+from streamlit_folium import st_folium
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
@@ -34,6 +41,47 @@ def _get_secret(key: str, default: str = "") -> str:
     except (KeyError, FileNotFoundError):
         return os.environ.get(key, default)
 
+JAYANG_CENTER = (37.5350, 127.0700)
+
+
+def _nominatim_search(address):
+    """Nominatim 지오코딩. 실패 시 None."""
+    params = urllib.parse.urlencode({"q": address, "format": "json", "limit": 1})
+    url = "https://nominatim.openstreetmap.org/search?" + params
+    req = urllib.request.Request(url, headers={"User-Agent": "RealEstateStrategyApp/1.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+        if data:
+            return (float(data[0]["lat"]), float(data[0]["lon"]))
+    except Exception:
+        pass
+    return None
+
+
+def _approx_coords(seed):
+    """이름 해시 기반 근사 좌표."""
+    h = int(hashlib.md5(seed.encode()).hexdigest(), 16)
+    return (
+        JAYANG_CENTER[0] + ((h % 1000) - 500) * 0.000006,
+        JAYANG_CENTER[1] + (((h >> 10) % 1000) - 500) * 0.000006,
+    )
+
+
+def _geocode(address):
+    """주소 → ((lat, lon), is_exact). session_state 캐시 사용."""
+    cache = st.session_state.setdefault("_geo_cache", {})
+    if address in cache:
+        return cache[address]
+    coords = _nominatim_search(address)
+    if coords:
+        cache[address] = (coords, True)
+        time.sleep(1.1)
+    else:
+        cache[address] = (_approx_coords(address), False)
+    return cache[address]
+
+
 REGION_OPTIONS = {
     "서울 광진구 자양동": "1121510500",
 }
@@ -41,7 +89,7 @@ LAWD_OPTIONS = {
     "서울 광진구 (11215)": "11215",
 }
 
-tab_listing, tab_tx, tab_compare = st.tabs(["📋 매물 호가", "💰 실거래가", "🔍 비교"])
+tab_listing, tab_tx, tab_compare, tab_map = st.tabs(["📋 매물 호가", "💰 실거래가", "🔍 비교", "🗺️ 지도"])
 
 # ── 매물 호가 (부동산뱅크) ──
 with tab_listing:
@@ -157,7 +205,6 @@ with tab_compare:
     """)
 
     if st.button("최신 스냅샷 불러오기", key="btn_snapshot"):
-        import json
         snapshot_path = os.path.join(os.path.dirname(__file__), "snapshots", "latest-jayang-villas.json")
         try:
             with open(snapshot_path, encoding="utf-8") as f:
@@ -197,6 +244,106 @@ with tab_compare:
             st.error("스냅샷 파일이 없습니다. CLI로 먼저 매물을 조회하세요.")
         except Exception as e:
             st.error(f"스냅샷 로드 실패: {e}")
+
+# ── 지도 탭 ──
+with tab_map:
+    st.subheader("매물/실거래가 지도")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        show_listings = st.checkbox("매물 호가 (빨간 핀)", value=True, key="map_show_listings")
+    with col2:
+        show_tx = st.checkbox("실거래가 (파란 핀)", value=False, key="map_show_tx")
+
+    if show_tx:
+        mc1, mc2 = st.columns(2)
+        with mc1:
+            map_deal_ymd = st.text_input("계약년월", value="202605", key="map_ymd")
+        with mc2:
+            map_prop_type = st.selectbox(
+                "유형", list(PROPERTY_TYPES),
+                format_func=lambda x: "연립다세대" if x == "villa" else "아파트",
+                key="map_type",
+            )
+
+    if st.button("지도에 표시", key="btn_map", type="primary"):
+        pins = []
+
+        if show_listings:
+            with st.spinner("매물 조회 중..."):
+                try:
+                    url = build_list_url()
+                    html = fetch_html(url)
+                    listings = filter_villas(parse_listings(html, source_url=url))
+                    for li in listings:
+                        pins.append({
+                            "address": "서울특별시 광진구 자양동 " + li.name,
+                            "label": li.name,
+                            "price": li.price_manwon + "만원",
+                            "detail": f"면적: {li.area_sqm}㎡ | 층: {li.floor}",
+                            "type": "listing",
+                        })
+                except Exception as e:
+                    st.error(f"매물 조회 실패: {e}")
+
+        if show_tx:
+            api_key_val = _get_secret("MOLIT_API_KEY")
+            if not api_key_val:
+                st.error("실거래가 조회에는 MOLIT API KEY가 필요합니다. (실거래가 탭 또는 Secrets에 설정)")
+            else:
+                with st.spinner("실거래가 조회 중..."):
+                    try:
+                        txs = fetch_transactions(
+                            lawd_cd="11215", deal_ymd=map_deal_ymd,
+                            property_type=map_prop_type, api_key=api_key_val,
+                        )
+                        for t in txs:
+                            pins.append({
+                                "address": f"서울특별시 광진구 {t.dong} {t.lot_number}",
+                                "label": t.name,
+                                "price": f"{t.price_manwon:,}만원",
+                                "detail": f"거래일: {t.deal_year}-{t.deal_month:02d}-{t.deal_day:02d} | {t.area_sqm}㎡ | {t.floor}층",
+                                "type": "tx",
+                            })
+                    except Exception as e:
+                        st.error(f"실거래가 조회 실패: {e}")
+
+        if pins:
+            unique_addrs = list(set(p["address"] for p in pins))
+            progress = st.progress(0, text="주소를 좌표로 변환 중...")
+            coords_map = {}
+            for i, addr in enumerate(unique_addrs):
+                progress.progress((i + 1) / len(unique_addrs), text=f"지오코딩 {i+1}/{len(unique_addrs)}")
+                coords_map[addr] = _geocode(addr)
+            progress.empty()
+
+            m = folium.Map(location=list(JAYANG_CENTER), zoom_start=15)
+            exact_count = 0
+            for pin in pins:
+                (lat, lon), is_exact = coords_map[pin["address"]]
+                exact_count += int(is_exact)
+                color = "red" if pin["type"] == "listing" else "blue"
+                icon_name = "home" if pin["type"] == "listing" else "won-sign"
+                popup_html = f"<b>{pin['label']}</b><br>{pin['price']}<br>{pin['detail']}"
+                if not is_exact:
+                    popup_html += "<br><i>(근사 위치)</i>"
+                folium.Marker(
+                    [lat, lon],
+                    popup=folium.Popup(popup_html, max_width=250),
+                    icon=folium.Icon(color=color, icon=icon_name, prefix="fa"),
+                    tooltip=pin["label"],
+                ).add_to(m)
+
+            st_folium(m, height=500, use_container_width=True)
+
+            listing_count = sum(1 for p in pins if p["type"] == "listing")
+            tx_count = sum(1 for p in pins if p["type"] == "tx")
+            st.caption(
+                f"매물 {listing_count}건 (빨강) | 실거래 {tx_count}건 (파랑) | "
+                f"정확 좌표 {exact_count}건, 근사 좌표 {len(pins) - exact_count}건"
+            )
+        elif not pins:
+            st.info("표시할 데이터가 없습니다. 위 체크박스를 선택하고 버튼을 누르세요.")
 
 # ── 사이드바 ──
 with st.sidebar:
