@@ -169,6 +169,7 @@ def _transaction_rows(district: str, api_key: str, deal_ymd: str, property_type:
         lawd_cd=lawd_cd,
         deal_ymd=deal_ymd, property_type=property_type,
         api_key=api_key,
+        num_of_rows=min(1000, max(limit, 100)),  # API 최대 1000건까지 요청
     )[:limit]
     rows = []
     for t in txs:
@@ -273,14 +274,16 @@ with st.sidebar:
     )
     st.divider()
     st.markdown("### 🔍 조회 옵션")
-    listing_limit = st.number_input("매물 수", 1, 80, 15)
+    listing_limit = st.number_input("매물 수", 1, 100, 100,
+                                    help="부동산뱅크 1페이지에서 파싱되는 만큼 표시됩니다.")
     deal_ymd = st.text_input("계약년월", value="202501")
     property_type = st.selectbox(
         "실거래 유형", list(PROPERTY_TYPES),
         format_func=lambda x: "연립다세대" if x == "villa" else "아파트",
     )
-    transaction_limit = st.number_input("실거래 수", 1, 200, 20)
-    redev_limit = st.number_input("재개발 구역 수", 1, 100, 25)
+    transaction_limit = st.number_input("실거래 수", 1, 1000, 1000,
+                                        help="국토부 API 최대 1000건까지 조회합니다.")
+    redev_limit = st.number_input("재개발 구역 수", 1, 500, 200)
     st.divider()
     st.markdown("### 📍 지도 레이어")
     show_subway  = st.checkbox("🚇 역세권 (지하철역)", value=True)
