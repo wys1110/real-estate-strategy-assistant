@@ -5,11 +5,10 @@
 from __future__ import annotations
 
 import html as html_mod
-import json
 import re
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 from typing import Dict, List, Optional, Tuple
 
 DISTRICT_CODES: Dict[str, str] = {
@@ -25,33 +24,43 @@ DISTRICT_CODES: Dict[str, str] = {
 }
 
 STAGES: List[str] = [
+    "안전진단",
     "정비계획 수립",
+    "정비구역 지정",
     "추진위원회 승인",
     "조합설립인가",
     "사업시행인가",
     "관리처분인가",
+    "분양",
     "착공",
     "준공인가",
     "이전고시",
     "조합해산",
     "조합청산",
+    "조합원 모집신고",
 ]
 
 STAGE_PROGRESS: Dict[str, int] = {
+    "안전진단": 5,
     "정비계획 수립": 10,
+    "정비구역 지정": 15,
     "추진위원회 승인": 20,
     "조합설립인가": 35,
     "사업시행인가": 50,
     "관리처분인가": 65,
+    "분양": 75,
     "착공": 80,
     "준공인가": 90,
     "이전고시": 95,
     "조합해산": 98,
     "조합청산": 100,
+    "조합원 모집신고": 15,
 }
 
 INVESTMENT_STAGES = [
+    "안전진단",
     "정비계획 수립",
+    "정비구역 지정",
     "추진위원회 승인",
     "조합설립인가",
     "사업시행인가",
@@ -71,6 +80,17 @@ BIZ_TYPES = [
 CLEANUP_BASE = "https://cleanup.seoul.go.kr/cleanup/bsnssttus/lscrMainIndx.do"
 _USER_AGENT = "RealEstateStrategyApp/1.0"
 
+_STAGE_ALIASES = {
+    "추진위원회승인": "추진위원회 승인",
+    "정비구역지정": "정비구역 지정",
+}
+
+
+def normalize_stage(stage: str) -> str:
+    """정보몽땅의 표기 차이를 앱의 표준 진행단계명으로 맞춥니다."""
+    cleaned = re.sub(r"\s+", " ", stage).strip()
+    return _STAGE_ALIASES.get(cleaned, cleaned)
+
 
 @dataclass
 class RedevelopmentZone:
@@ -85,6 +105,7 @@ class RedevelopmentZone:
     lon: Optional[float] = None
 
     def __post_init__(self):
+        self.stage = normalize_stage(self.stage)
         if not self.progress:
             self.progress = STAGE_PROGRESS.get(self.stage, 0)
 
@@ -173,16 +194,20 @@ def score_zone(zone: RedevelopmentZone) -> float:
     완료 단계(준공 이후)에 낮은 점수.
     """
     stage_scores = {
+        "안전진단": 25,
         "정비계획 수립": 40,
+        "정비구역 지정": 45,
         "추진위원회 승인": 55,
         "조합설립인가": 75,
         "사업시행인가": 85,
         "관리처분인가": 80,
+        "분양": 70,
         "착공": 65,
         "준공인가": 30,
         "이전고시": 15,
         "조합해산": 5,
         "조합청산": 5,
+        "조합원 모집신고": 35,
     }
     base = stage_scores.get(zone.stage, 30)
 
