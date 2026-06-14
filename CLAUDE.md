@@ -19,6 +19,8 @@ As of 2026-06-14:
 - Mobile Naver cluster endpoint returned `HTTP 200` but body `null` for the tested parameters.
 - BudongsanBank listing iframe returned HTML that includes listing rows and prices.
 - For Jayang-dong sale listings, the parser found 30 first-page rows and 16 villa/row-house/multi-family rows.
+- The latest saved listing snapshot is `snapshots/latest-jayang-villas.json`.
+- The local `main` branch has integrated the newer Claude branch MOLIT code, with Python 3.7-compatible type hints.
 
 ## Main Commands
 
@@ -26,17 +28,19 @@ As of 2026-06-14:
 cd /Users/yongseokwon/dev/real-estate-strategy-assistant
 PYTHONPATH=src python3 -m real_estate_strategy.cli fetch --limit 12
 PYTHONPATH=src python3 -m real_estate_strategy.cli fetch --format json --limit 5
+MOLIT_API_KEY=... PYTHONPATH=src python3 -m real_estate_strategy.cli transactions --deal-ymd 202605 --type villa
 ```
 
 ## Source Boundaries
 
 - `budongsanbank.py`: current listing asking prices from HTML.
-- Future MOLIT module: official actual transaction prices from public API.
+- `molit.py`: official actual transaction prices from MOLIT public data APIs.
 - Future REB module: market index/statistics, not individual listings.
 
 ## Verification Checklist
 
 - Run the CLI after parser changes.
 - Confirm at least one listing has `listing_id`, `listing_type`, `name`, `area_sqm`, `floor`, and `price_manwon`.
+- Run `python3 -m compileall src`.
 - Keep docs aligned when adding a new source.
 - If source access fails, report status code/body symptom rather than silently falling back.
