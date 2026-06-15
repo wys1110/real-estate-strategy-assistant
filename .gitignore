@@ -5,5 +5,8 @@ __pycache__/
 venv/
 listings.csv
 data/
+snapshots/*.db
+snapshots/*.db-journal
+snapshots/*.db-wal
 .streamlit/secrets.toml
 .claude/settings.local.json

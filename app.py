@@ -1,18 +1,18 @@
-"""Streamlit 부동산 전략 어시스턴트 웹앱.
+"""Streamlit 부동산 전략 어시스턴트 — 조회(읽기) 전용 앱.
 
-지도를 움직여 검색 위치(자치구)를 정하고, 사이드바에서 레이어
-(역세권·초품아·SK하이닉스/삼성전자 셔틀)를 켜서 비교합니다.
+구조: 수집(배치 CLI) → SQLite 스냅샷 → 이 앱(읽기 전용).
+앱은 조회 시 네트워크를 사용하지 않고 DB만 읽어 즉시 응답합니다.
+지도는 입력이 아니라 결과 표시 전용입니다.
+
+데이터 갱신:
+    PYTHONPATH=src python3 -m real_estate_strategy.cli collect --all --deal-ymd 202501
 """
 from __future__ import annotations
 
-import concurrent.futures as cf
-import functools
 import hashlib
 import os
 import sys
-import threading
-import time
-from typing import Callable, Dict, List, Sequence, Tuple
+from typing import Dict, List, Tuple
 
 import folium
 from folium import JsCode
@@ -22,20 +22,10 @@ from streamlit_folium import st_folium
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
-from real_estate_strategy.budongsanbank import (
-    build_list_url,
-    fetch_html,
-    filter_villas,
-    parse_listings,
-)
-from real_estate_strategy.molit import PROPERTY_TYPES, fetch_transactions
-from real_estate_strategy.redevelopment import (
-    DISTRICT_CODES,
-    INVESTMENT_STAGES,
-    STAGES,
-    enrich_scores,
-    fetch_zones,
-)
+from real_estate_strategy import collect as collect_mod
+from real_estate_strategy import store
+from real_estate_strategy.molit import PROPERTY_TYPES
+from real_estate_strategy.redevelopment import DISTRICT_CODES
 from real_estate_strategy.poi import ELEMENTARY_SCHOOLS, SHUTTLE_STOPS, SUBWAY_STATIONS
 
 
@@ -45,37 +35,7 @@ st.markdown("<style>.block-container{padding-top:1.5rem}</style>", unsafe_allow_
 SEOUL_CENTER = (37.5665, 126.9780)
 MODE_OPTIONS = ["통합", "매물", "실거래", "재개발"]
 GEO_CACHE_VERSION = "v7"
-
-# BudongsanBank region_cd = 시도(2) + 시군구(3) + 읍면동(3) + 리(2) = 10자리 법정동코드
-# 읍면동 '101' + 리 '00' → 각 구 첫 번째 법정동으로 추정.
-# 광진구 자양동(105)만 실제 동작이 확인됨.
-BBANK_CODES: Dict[str, str] = {
-    "종로구":   "1111010100",
-    "중구":     "1114010100",
-    "용산구":   "1117010100",
-    "성동구":   "1120010100",
-    "광진구":   "1121510500",   # 자양동 ✓ 확인됨
-    "동대문구": "1123010100",
-    "중랑구":   "1126010100",
-    "성북구":   "1129010100",
-    "강북구":   "1130510100",
-    "도봉구":   "1132010100",
-    "노원구":   "1135010100",
-    "은평구":   "1138010100",
-    "서대문구": "1141010100",
-    "마포구":   "1144010100",
-    "양천구":   "1147010100",
-    "강서구":   "1150010100",
-    "구로구":   "1153010100",
-    "금천구":   "1154510100",
-    "영등포구": "1156010100",
-    "동작구":   "1159010100",
-    "관악구":   "1162010100",
-    "서초구":   "1165010100",
-    "강남구":   "1168010100",   # 압구정동 (URL 패턴 확인)
-    "송파구":   "1171010100",
-    "강동구":   "1174010100",
-}
+DISTRICTS = list(DISTRICT_CODES.keys())
 
 DISTRICT_CENTERS: Dict[str, Tuple[float, float]] = {
     "종로구": (37.5735, 126.9788), "중구": (37.5636, 126.9976),
@@ -112,17 +72,10 @@ DONG_CENTERS: Dict[str, Tuple[float, float]] = {
     "강일동": (37.5655, 127.1743),
 }
 
-# ── 색상 (folium 마커용 hex) ──────────────────────────────────────────────────
 _C = {
-    "listing":     "#dc3232",
-    "transaction": "#1e78dc",
-    "redev_high":  "#b40000",
-    "redev_mid":   "#ff8c00",
-    "redev_low":   "#00b450",
-    "subway":      "#ffa500",
-    "school":      "#00a050",
-    "hynix":       "#9400d3",
-    "samsung":     "#0050b4",
+    "listing": "#dc3232", "transaction": "#1e78dc",
+    "redev_high": "#b40000", "redev_mid": "#ff8c00", "redev_low": "#00b450",
+    "subway": "#ffa500", "school": "#00a050", "hynix": "#9400d3", "samsung": "#0050b4",
 }
 
 
@@ -133,16 +86,7 @@ def _get_secret(key: str, default: str = "") -> str:
         return os.environ.get(key, default)
 
 
-# ── 위치 추정 ─────────────────────────────────────────────────────────────────
-def _nearest_district(lat: float, lng: float) -> str:
-    best, best_d = "광진구", float("inf")
-    for name, (dla, dln) in DISTRICT_CENTERS.items():
-        d = (lat - dla) ** 2 + (lng - dln) ** 2
-        if d < best_d:
-            best_d, best = d, name
-    return best
-
-
+# ── 근사 지오코딩 (지도 표시 전용, 결정적) ───────────────────────────────────
 def _address_anchor(address: str, fallback: Tuple[float, float]) -> Tuple[Tuple[float, float], float]:
     for token, center in sorted(DONG_CENTERS.items(), key=lambda x: len(x[0]), reverse=True):
         if token in address:
@@ -160,40 +104,9 @@ def _approx_coords(seed: str, center: Tuple[float, float], radius: float) -> Tup
     return center[0] + lat_offset, center[1] + lon_offset
 
 
-_GEO_CACHE: Dict[str, Tuple[float, float]] = {}
-
-
 def _geocode(address: str, center: Tuple[float, float]) -> Tuple[float, float]:
-    cache_key = f"{GEO_CACHE_VERSION}::{address}"
-    coords = _GEO_CACHE.get(cache_key)
-    if coords is None:
-        anchor, radius = _address_anchor(address, center)
-        coords = _approx_coords(address, anchor, radius)
-        _GEO_CACHE[cache_key] = coords
-    return coords
-
-
-# ── 경량 TTL 캐시 ─────────────────────────────────────────────────────────────
-_NET_CACHE: Dict[tuple, Tuple[float, object]] = {}
-_NET_CACHE_LOCK = threading.Lock()
-_NET_CACHE_TTL = 600  # 초
-
-
-def _ttl_cache(fn: Callable) -> Callable:
-    @functools.wraps(fn)
-    def wrapper(*args):
-        key = (fn.__name__, args)
-        now = time.time()
-        with _NET_CACHE_LOCK:
-            hit = _NET_CACHE.get(key)
-            if hit and now - hit[0] < _NET_CACHE_TTL:
-                return hit[1]
-        value = fn(*args)
-        with _NET_CACHE_LOCK:
-            _NET_CACHE[key] = (now, value)
-        return value
-
-    return wrapper
+    anchor, radius = _address_anchor(address, center)
+    return _approx_coords(f"{GEO_CACHE_VERSION}::{address}", anchor, radius)
 
 
 def _make_row(lat, lng, label, name, info1="", info2="", info3="", color="#666", radius=7):
@@ -201,92 +114,55 @@ def _make_row(lat, lng, label, name, info1="", info2="", info3="", color="#666",
                 info1=info1, info2=info2, info3=info3, color=color, radius=radius)
 
 
-# ── 데이터 수집 (TTL 캐시 + 병렬 호출 안전) ──────────────────────────────────
-@_ttl_cache
-def _listing_rows(district: str, limit: int) -> List[dict]:
-    region_code = BBANK_CODES.get(district)
-    if not region_code:
-        raise ValueError(f"{district} region code 미등록")
+# ── DB 레코드 → 지도/테이블 행 ────────────────────────────────────────────────
+def _listing_rows(district: str, recs: List[dict]) -> List[dict]:
     center = DISTRICT_CENTERS.get(district, SEOUL_CENTER)
-    url = build_list_url(region_code)
-    all_listings = parse_listings(fetch_html(url), source_url=url)
-    listings = filter_villas(all_listings)[:limit]
-    if not listings and all_listings:
-        listings = all_listings[:limit]
     rows = []
-    for li in listings:
-        lat, lng = _geocode(f"서울특별시 {district} {li.name}", center)
+    for li in recs:
+        lat, lng = _geocode(f"서울특별시 {district} {li['name']}", center)
         rows.append(_make_row(
-            lat, lng, "매물 (호가)", li.name,
-            info1=f"{li.area_sqm}㎡ | {li.floor}층",
-            info2=f"호가 {li.price_manwon}만원",
-            info3=li.note[:60],
-            color=_C["listing"],
+            lat, lng, "매물 (호가)", li["name"],
+            info1=f"{li['area_sqm']}㎡ | {li['floor']}층",
+            info2=f"호가 {li['price_manwon']}만원",
+            info3=(li["note"] or "")[:60], color=_C["listing"],
         ))
     return rows
 
 
-@_ttl_cache
-def _transaction_rows(district: str, api_key: str, deal_ymd: str, property_type: str, limit: int) -> List[dict]:
-    lawd_cd = DISTRICT_CODES.get(district, "11215")
+def _transaction_rows(district: str, recs: List[dict]) -> List[dict]:
     center = DISTRICT_CENTERS.get(district, SEOUL_CENTER)
-    txs = fetch_transactions(
-        lawd_cd=lawd_cd,
-        deal_ymd=deal_ymd, property_type=property_type,
-        api_key=api_key,
-        num_of_rows=min(1000, max(limit, 100)),
-    )[:limit]
     rows = []
-    for t in txs:
-        addr = f"서울특별시 {district} {t.dong} {t.lot_number}"
+    for t in recs:
+        addr = f"서울특별시 {district} {t['dong']} {t['lot_number']}"
         lat, lng = _geocode(addr, center)
+        price = t["price_manwon"]
         rows.append(_make_row(
-            lat, lng, "실거래", t.name,
-            info1=f"{t.area_sqm}㎡ | {t.floor}층",
-            info2=f"거래가 {t.price_manwon:,}만원",
-            info3=f"{t.deal_year}-{t.deal_month:02d}-{t.deal_day:02d} | {t.build_year or '-'}년식",
+            lat, lng, "실거래", t["name"],
+            info1=f"{t['area_sqm']}㎡ | {t['floor']}층",
+            info2=f"거래가 {price:,}만원" if isinstance(price, int) else f"거래가 {price}만원",
+            info3=f"{t['deal_year']}-{t['deal_month']:02d}-{t['deal_day']:02d} | {t['build_year'] or '-'}년식",
             color=_C["transaction"],
         ))
     return rows
 
 
-@_ttl_cache
-def _redevelopment_rows(districts: Sequence[str], stages: Sequence[str], only_redev: bool, limit: int) -> List[dict]:
-    zones = []
-    if districts:
-        with cf.ThreadPoolExecutor(max_workers=min(8, len(districts))) as ex:
-            futures = [ex.submit(fetch_zones, DISTRICT_CODES[d], 1, 200) for d in districts]
-            for fut in cf.as_completed(futures):
-                try:
-                    fetched, _ = fut.result()
-                    zones.extend(fetched)
-                except Exception:
-                    continue
-    stage_set = set(stages)
-    if stage_set:
-        zones = [z for z in zones if z.stage in stage_set]
-    if only_redev:
-        zones = [z for z in zones if "재개발" in z.biz_type]
-    zones = enrich_scores(zones)
-    zones.sort(key=lambda z: z.score, reverse=True)
-    zones = zones[:limit]
-
+def _zone_rows(district: str, recs: List[dict]) -> List[dict]:
+    center = DISTRICT_CENTERS.get(district, SEOUL_CENTER)
     rows = []
-    for z in zones:
-        addr = f"서울특별시 {z.district} {z.address}"
-        lat, lng = _geocode(addr, SEOUL_CENTER)
-        color = _C["redev_high"] if z.score >= 80 else (_C["redev_mid"] if z.score >= 60 else _C["redev_low"])
+    for z in recs:
+        lat, lng = _geocode(f"서울특별시 {district} {z['address']}", center)
+        score = z["score"] or 0
+        color = _C["redev_high"] if score >= 80 else (_C["redev_mid"] if score >= 60 else _C["redev_low"])
         rows.append(_make_row(
-            lat, lng, "재개발", z.name,
-            info1=f"{z.biz_type} | {z.stage}",
-            info2=f"추천 {z.score:.0f}점 | 진행률 {z.progress}%",
-            info3=z.address,
-            color=color, radius=9,
+            lat, lng, "재개발", z["name"],
+            info1=f"{z['biz_type']} | {z['stage']}",
+            info2=f"추천 {score:.0f}점 | 진행률 {z['progress']}%",
+            info3=z["address"], color=color, radius=9,
         ))
     return rows
 
 
-def _poi_rows(show_subway: bool, show_school: bool, show_hynix: bool, show_samsung: bool) -> List[dict]:
+def _poi_rows(show_subway, show_school, show_hynix, show_samsung) -> List[dict]:
     rows = []
     if show_subway:
         for s in SUBWAY_STATIONS:
@@ -307,218 +183,150 @@ def _poi_rows(show_subway: bool, show_school: bool, show_hynix: bool, show_samsu
     return rows
 
 
-# ── folium 지도 ───────────────────────────────────────────────────────────────
-# point_to_layer: GeoJSON 피처 하나당 CircleMarker로 렌더링하는 Leaflet JS 함수.
-# N개 CircleMarker 객체 대신 GeoJSON 레이어 1개로 처리 → HTML 크기 대폭 감소.
+# ── folium 지도 (출력 전용) ───────────────────────────────────────────────────
 _PTL = JsCode("""
 function(feature, latlng) {
     var p = feature.properties;
     return L.circleMarker(latlng, {
-        radius: p.radius,
-        fillColor: p.color,
-        color: '#ffffff',
-        weight: 1,
-        fillOpacity: 0.85
+        radius: p.radius, fillColor: p.color,
+        color: '#ffffff', weight: 1, fillOpacity: 0.85
     });
 }
 """)
 
 
-def _build_map(center: Tuple[float, float], zoom: int, rows: List[dict]) -> folium.Map:
-    m = folium.Map(location=list(center), zoom_start=zoom,
+def _build_map(center: Tuple[float, float], rows: List[dict]) -> folium.Map:
+    m = folium.Map(location=list(center), zoom_start=14,
                    tiles="CartoDB positron", control_scale=True, prefer_canvas=True)
     if not rows:
         return m
-
     features = [
         {
             "type": "Feature",
             "geometry": {"type": "Point", "coordinates": [r["lng"], r["lat"]]},
-            "properties": {
-                "label": r["label"],
-                "name": r["name"],
-                "info1": r["info1"],
-                "info2": r["info2"],
-                "color": r["color"],
-                "radius": r["radius"],
-            },
+            "properties": {"label": r["label"], "name": r["name"],
+                           "info1": r["info1"], "info2": r["info2"],
+                           "color": r["color"], "radius": r["radius"]},
         }
         for r in rows
     ]
-
     folium.GeoJson(
         {"type": "FeatureCollection", "features": features},
         point_to_layer=_PTL,
         tooltip=folium.GeoJsonTooltip(
             fields=["label", "name", "info1", "info2"],
             aliases=["유형", "이름", "상세", "가격/점수"],
-            sticky=True,
-            labels=True,
-            style="font-size:13px;padding:4px;",
+            sticky=True, labels=True, style="font-size:13px;padding:4px;",
         ),
     ).add_to(m)
     return m
 
 
-@st.fragment
-def _render_map() -> None:
-    """지도 전용 fragment — 맵 패닝 시 이 fragment만 재실행되고 전체 앱은 재실행되지 않습니다."""
-    layers = st.session_state.get("_layers", {})
-    res = st.session_state.get("results", {"map_rows": [], "table_rows": [], "errors": []})
-    view = st.session_state.setdefault("view", {"center": list(DISTRICT_CENTERS["광진구"]), "zoom": 14})
-
-    poi_rows = _poi_rows(
-        layers.get("subway", True), layers.get("school", True),
-        layers.get("hynix", True), layers.get("samsung", True),
-    )
-    all_rows = res["map_rows"] + poi_rows
-
-    # 마커 데이터가 변경된 경우에만 지도 재빌드
-    map_sig = hash(tuple((round(r["lat"], 5), round(r["lng"], 5), r["color"]) for r in all_rows))
-    cache = st.session_state.get("_map_cache")
-    if not cache or cache["sig"] != map_sig:
-        fmap = _build_map(view["center"], view["zoom"], all_rows)
-        st.session_state["_map_cache"] = {"sig": map_sig, "map": fmap}
-    else:
-        fmap = cache["map"]
-
-    state = st_folium(fmap, key="map", height=560, use_container_width=True,
-                      returned_objects=["center", "zoom"])
-
-    if state and state.get("center"):
-        view["center"] = [state["center"]["lat"], state["center"]["lng"]]
-        view["zoom"] = state.get("zoom") or view["zoom"]
+@st.cache_resource
+def _conn():
+    return store.connect()
 
 
 # ── UI ───────────────────────────────────────────────────────────────────────
 st.title("🏠 부동산 전략 어시스턴트")
-st.caption("지도를 움직여 동네를 정하고, '이 위치 조회'로 매물·실거래·재개발을 한눈에 비교합니다.")
+st.caption("스냅샷 DB에서 매물·실거래·재개발을 즉시 조회합니다. 지도는 결과 표시 전용입니다.")
+
+conn = _conn()
 
 with st.sidebar:
-    st.markdown("### 📊 데이터 출처")
-    st.markdown(
-        "- 🔴 부동산뱅크: 현재 매물 호가\n"
-        "- 🔵 국토교통부: 신고 실거래가\n"
-        "- ⭐ 서울시 정보몽땅: 정비사업"
-    )
-    st.divider()
-    st.markdown("### 🔍 조회 옵션")
-    listing_limit = st.number_input("매물 수", 1, 100, 100,
-                                    help="부동산뱅크 1페이지에서 파싱되는 만큼 표시됩니다.")
+    st.markdown("### 🔍 조회")
+    district = st.selectbox("자치구", DISTRICTS, index=DISTRICTS.index("광진구"))
+    mode = st.radio("모드", MODE_OPTIONS, index=0, horizontal=True)
     deal_ymd = st.text_input("계약년월", value="202501")
     property_type = st.selectbox(
         "실거래 유형", list(PROPERTY_TYPES),
         format_func=lambda x: "연립다세대" if x == "villa" else "아파트",
     )
-    transaction_limit = st.number_input("실거래 수", 1, 1000, 1000,
-                                        help="국토부 API 최대 1000건까지 조회합니다.")
-    redev_limit = st.number_input("재개발 구역 수", 1, 500, 200)
     st.divider()
     st.markdown("### 📍 지도 레이어")
-    show_subway  = st.checkbox("🚇 역세권 (지하철역)", value=True)
-    show_school  = st.checkbox("🏫 초품아 (초등학교)", value=True)
-    show_hynix   = st.checkbox("🚌 SK하이닉스 셔틀",  value=True)
-    show_samsung = st.checkbox("🚌 삼성전자 셔틀",    value=True)
-    # fragment가 세션 상태를 통해 레이어 설정을 읽도록 저장
-    st.session_state["_layers"] = {
-        "subway": show_subway, "school": show_school,
-        "hynix": show_hynix, "samsung": show_samsung,
-    }
+    show_subway = st.checkbox("🚇 역세권 (지하철역)", value=True)
+    show_school = st.checkbox("🏫 초품아 (초등학교)", value=True)
+    show_hynix = st.checkbox("🚌 SK하이닉스 셔틀", value=True)
+    show_samsung = st.checkbox("🚌 삼성전자 셔틀", value=True)
+    st.divider()
+    st.markdown("### 🔄 데이터 수집 (네트워크)")
+    st.caption("외부 소스에서 가져와 DB에 저장합니다. 평소엔 불필요하며, 갱신이 필요할 때만 누르세요.")
+    api_key = _get_secret("MOLIT_API_KEY")
+    if not api_key:
+        api_key = st.text_input("MOLIT API KEY", type="password",
+                                help="실거래 수집에만 필요합니다.")
+    if st.button("이 구 수집", use_container_width=True):
+        with st.spinner(f"{district} 수집 중..."):
+            kinds = ["매물", "재개발"] + (["실거래"] if api_key else [])
+            results = collect_mod.collect_district(
+                conn, district, deal_ymd=deal_ymd, property_type=property_type,
+                api_key=api_key, kinds=kinds,
+            )
+        for r in results:
+            (st.success if r.ok else st.warning)(f"{r.kind}: {r.count}건 {r.symptom}".strip())
+        st.rerun()
 
-mode = st.radio("모드", MODE_OPTIONS, horizontal=True, index=0)
+# ── 조회 (DB 읽기, 네트워크 없음) ─────────────────────────────────────────────
+map_rows: List[dict] = []
+table_rows: List[Dict] = []
+notes: List[str] = []
 
-# 지도 view 상태 (fragment에서 뮤테이션된 dict를 그대로 읽으므로 최신 위치 반영)
-view = st.session_state.setdefault(
-    "view", {"center": list(DISTRICT_CENTERS["광진구"]), "zoom": 14}
-)
-cur_district = _nearest_district(view["center"][0], view["center"][1])
+if mode in ("통합", "매물"):
+    recs = store.load_listings(conn, district)
+    rows = _listing_rows(district, recs)
+    map_rows += rows
+    table_rows += [{"구분": "매물", "건물명": r["name"], "면적/층": r["info1"],
+                    "가격": r["info2"], "비고": r["info3"]} for r in rows]
+    if not recs:
+        notes.append("매물 스냅샷이 없습니다 — 사이드바 '이 구 수집'을 실행하세요.")
 
-if mode == "재개발":
-    districts = st.multiselect(
-        "재개발 자치구 (여러 구 비교 가능)", list(DISTRICT_CODES.keys()),
-        default=[cur_district],
+if mode in ("통합", "실거래"):
+    recs = store.load_transactions(conn, district, deal_ymd, property_type)
+    rows = _transaction_rows(district, recs)
+    map_rows += rows
+    table_rows += [{"구분": "실거래", "건물명": r["name"], "면적/층": r["info1"],
+                    "가격": r["info2"], "비고": r["info3"]} for r in rows]
+    if not recs:
+        notes.append(f"실거래 스냅샷이 없습니다 ({deal_ymd}/{property_type}).")
+
+if mode in ("통합", "재개발"):
+    recs = store.load_zones(conn, district)
+    rows = _zone_rows(district, recs)
+    map_rows += rows
+    table_rows += [{"구분": "재개발", "건물명": r["name"], "면적/층": r["info1"],
+                    "가격": r["info2"], "비고": r["info3"]} for r in rows]
+    if not recs:
+        notes.append("재개발 스냅샷이 없습니다.")
+
+for n in notes:
+    st.info(n)
+
+# ── 수집 현황 (출처 인식) ─────────────────────────────────────────────────────
+status = store.collection_status(conn, district)
+if status:
+    chips = " · ".join(
+        f"{s['kind']} {s['count']}건 ({s['collected_at'][:16].replace('T', ' ')})"
+        for s in status
     )
-    rc = st.columns([3, 1])
-    with rc[0]:
-        stages = st.multiselect("진행단계", STAGES, default=INVESTMENT_STAGES)
-    with rc[1]:
-        only_redev = st.checkbox("재개발만", value=False)
+    st.caption(f"📦 {district} 스냅샷: {chips}")
+
+# ── 지도 (결과 표시 전용, 패닝해도 rerun 없음) ───────────────────────────────
+poi_rows = _poi_rows(show_subway, show_school, show_hynix, show_samsung)
+all_rows = map_rows + poi_rows
+center = DISTRICT_CENTERS.get(district, SEOUL_CENTER)
+
+map_sig = hash((district, tuple((round(r["lat"], 5), round(r["lng"], 5), r["color"]) for r in all_rows)))
+cache = st.session_state.get("_map_cache")
+if not cache or cache["sig"] != map_sig:
+    fmap = _build_map(center, all_rows)
+    st.session_state["_map_cache"] = {"sig": map_sig, "map": fmap}
 else:
-    districts = [cur_district]
-    stages = INVESTMENT_STAGES
-    only_redev = False
+    fmap = cache["map"]
 
-api_key = _get_secret("MOLIT_API_KEY")
-if mode in ("통합", "실거래") and not api_key:
-    api_key = st.text_input("MOLIT API KEY", type="password", help="실거래가 조회에 필요합니다.")
-
-loc = st.columns([3, 1])
-with loc[0]:
-    st.info(f"📍 현재 지도 중심: **{cur_district}** — 이 위치 기준으로 조회합니다.")
-with loc[1]:
-    go = st.button("🔍 이 위치 조회", type="primary", use_container_width=True)
-
-if go:
-    map_rows: List[dict] = []
-    table_rows: List[Dict] = []
-    errors: List[str] = []
-
-    tasks: Dict[str, Callable[[], List[dict]]] = {}
-    if mode in ("통합", "매물"):
-        tasks["매물"] = lambda: _listing_rows(cur_district, listing_limit)
-    if mode in ("통합", "실거래"):
-        if not api_key:
-            errors.append("실거래가 조회에는 MOLIT API KEY가 필요합니다.")
-        else:
-            tasks["실거래"] = lambda: _transaction_rows(
-                cur_district, api_key, deal_ymd, property_type, transaction_limit)
-    if mode in ("통합", "재개발"):
-        if not districts:
-            errors.append("재개발 자치구를 1개 이상 선택하세요.")
-        else:
-            tasks["재개발"] = lambda: _redevelopment_rows(
-                tuple(districts), tuple(stages), only_redev, redev_limit)
-
-    results_by_kind: Dict[str, List[dict]] = {}
-    if tasks:
-        with st.spinner(f"조회 중... ({', '.join(tasks)})"):
-            with cf.ThreadPoolExecutor(max_workers=len(tasks)) as ex:
-                future_kind = {ex.submit(fn): kind for kind, fn in tasks.items()}
-                for fut in cf.as_completed(future_kind):
-                    kind = future_kind[fut]
-                    try:
-                        results_by_kind[kind] = fut.result()
-                    except Exception as e:
-                        errors.append(f"{kind} 조회 실패: {e}")
-
-    for kind in ("매물", "실거래", "재개발"):
-        rows = results_by_kind.get(kind)
-        if not rows:
-            if kind in tasks and kind not in results_by_kind:
-                continue
-            if kind in tasks:
-                errors.append(f"{kind}: 결과가 없습니다 ({cur_district}).")
-            continue
-        map_rows.extend(rows)
-        for r in rows:
-            table_rows.append({"구분": kind, "건물명": r["name"],
-                               "면적/층": r["info1"], "가격": r["info2"], "비고": r["info3"]})
-
-    st.session_state["results"] = {"map_rows": map_rows, "table_rows": table_rows,
-                                   "errors": errors, "mode": mode, "district": cur_district}
-    st.rerun()
-
-res = st.session_state.get("results", {"map_rows": [], "table_rows": [], "errors": [], "mode": mode})
-for err in res["errors"]:
-    st.warning(err)
-
-# ── 지도 (fragment) ──────────────────────────────────────────────────────────
-# 맵 패닝/줌 이벤트가 rerun을 유발할 때 이 fragment만 재실행됩니다.
-# 사이드바·버튼 등 나머지 위젯은 재실행되지 않으므로 전체적인 응답성이 향상됩니다.
-_render_map()
+# returned_objects=[] → 지도 인터랙션이 rerun을 유발하지 않습니다 (출력 전용).
+st_folium(fmap, key="map", height=560, use_container_width=True, returned_objects=[])
 
 # ── 요약 + 테이블 ─────────────────────────────────────────────────────────────
-table_rows = res["table_rows"]
 if table_rows:
     counts: Dict[str, int] = {}
     for r in table_rows:
@@ -528,5 +336,5 @@ if table_rows:
         col.metric(k, f"{v}건")
     st.divider()
     st.dataframe(pd.DataFrame(table_rows), use_container_width=True, hide_index=True, height=360)
-elif not res["errors"]:
-    st.info("지도를 움직여 위치를 정하고 '🔍 이 위치 조회'를 눌러주세요.")
+elif not notes:
+    st.info("사이드바에서 자치구와 모드를 선택하세요. 데이터가 없으면 '이 구 수집'을 실행하세요.")

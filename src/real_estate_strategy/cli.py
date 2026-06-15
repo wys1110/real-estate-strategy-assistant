@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import sys
 
 from .budongsanbank import build_list_url, fetch_html, filter_villas, parse_listings
@@ -27,13 +28,65 @@ def main(argv=None) -> int:
     tx_parser.add_argument("--limit", type=int, default=50)
     tx_parser.add_argument("--format", choices=("table", "json", "csv"), default="table")
 
+    collect_parser = subparsers.add_parser(
+        "collect", help="Collect listings/transactions/zones into the SQLite snapshot DB")
+    collect_parser.add_argument(
+        "--district", action="append",
+        help="자치구명 (반복 지정 가능). 생략 또는 --all 시 전체 구")
+    collect_parser.add_argument("--all", action="store_true", help="서울 25개 구 전체 수집")
+    collect_parser.add_argument("--deal-ymd", default="", help="실거래 계약년월 6자리 (예: 202501)")
+    collect_parser.add_argument("--type", dest="property_type",
+                                choices=("villa", "apt"), default="villa")
+    collect_parser.add_argument("--listing-limit", type=int, default=100)
+    collect_parser.add_argument("--tx-limit", type=int, default=1000)
+    collect_parser.add_argument("--kinds", default="매물,실거래,재개발",
+                                help="수집 종류 (쉼표 구분): 매물,실거래,재개발")
+    collect_parser.add_argument("--db", default=None, help="SQLite 경로 (기본: snapshots/realestate.db)")
+
     args = parser.parse_args(argv)
     if args.command == "fetch":
         return _fetch(args)
     if args.command == "transactions":
         return _transactions(args)
+    if args.command == "collect":
+        return _collect(args)
     parser.error("unknown command")
     return 2
+
+
+def _collect(args) -> int:
+    from . import collect as collect_mod
+    from . import store
+
+    districts = collect_mod.DISTRICTS if (args.all or not args.district) else args.district
+    kinds = [k.strip() for k in args.kinds.split(",") if k.strip()]
+    api_key = os.environ.get("MOLIT_API_KEY", "")
+    if "실거래" in kinds and not args.deal_ymd:
+        print("경고: --deal-ymd 미지정 → 실거래 수집을 건너뜁니다.", file=sys.stderr)
+        kinds = [k for k in kinds if k != "실거래"]
+    if "실거래" in kinds and not api_key:
+        print("경고: MOLIT_API_KEY 미설정 → 실거래 수집을 건너뜁니다.", file=sys.stderr)
+        kinds = [k for k in kinds if k != "실거래"]
+
+    db_path = args.db or store.DEFAULT_DB_PATH
+    conn = store.connect(db_path)
+    try:
+        for district in districts:
+            print(f"[{district}]")
+            results = collect_mod.collect_district(
+                conn, district,
+                deal_ymd=args.deal_ymd, property_type=args.property_type,
+                api_key=api_key, listing_limit=args.listing_limit,
+                tx_limit=args.tx_limit, kinds=kinds,
+            )
+            for r in results:
+                print(r.line())
+        s = store.summary(conn)
+        print(f"\nDB: {db_path}")
+        print(f"총계 — 매물 {s['listings']} / 실거래 {s['transactions']} / 재개발 {s['zones']}")
+    finally:
+        conn.close()
+    return 0
 
 
 def _fetch(args) -> int:
