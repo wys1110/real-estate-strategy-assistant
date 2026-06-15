@@ -1,0 +1,66 @@
+name: Daily Collect & Export
+
+on:
+  schedule:
+    - cron: '0 17 * * *'   # 02:00 KST
+  workflow_dispatch:
+    inputs:
+      deal_ymd:
+        description: '수집 년월 YYYYMM (비우면 당월+전월 자동)'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Collect listings & zones (all districts)
+        run: |
+          PYTHONPATH=src python3 -m real_estate_strategy.cli collect \
+            --all --kinds 매물,재개발
+
+      - name: Collect transactions — previous month
+        env:
+          MOLIT_API_KEY: ${{ secrets.MOLIT_API_KEY }}
+        run: |
+          if [ -n "${{ github.event.inputs.deal_ymd }}" ]; then
+            YM="${{ github.event.inputs.deal_ymd }}"
+          else
+            YM=$(date -d '1 month ago' +%Y%m)
+          fi
+          echo "수집 년월: $YM"
+          PYTHONPATH=src python3 -m real_estate_strategy.cli collect \
+            --all --kinds 실거래 --deal-ymd "$YM"
+
+      - name: Collect transactions — current month
+        if: ${{ github.event.inputs.deal_ymd == '' || github.event.inputs.deal_ymd == null }}
+        env:
+          MOLIT_API_KEY: ${{ secrets.MOLIT_API_KEY }}
+        run: |
+          CUR=$(date +%Y%m)
+          echo "수집 년월: $CUR"
+          PYTHONPATH=src python3 -m real_estate_strategy.cli collect \
+            --all --kinds 실거래 --deal-ymd "$CUR"
+
+      - name: Export JSON for GitHub Pages
+        run: python3 scripts/export_json.py
+
+      - name: Commit & push snapshot
+        run: |
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add --force snapshots/realestate.db docs/data/
+          git diff --cached --quiet && echo "변경 없음" && exit 0
+          git commit -m "chore: daily snapshot $(date -u +%Y-%m-%d)"
+          git push
