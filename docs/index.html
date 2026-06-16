@@ -4,98 +4,172 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>부동산 전략 어시스턴트</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
     :root {
       --accent: #1d4ed8;
       --accent-bg: #eff6ff;
+      --green: #15803d;
+      --green-bg: #dcfce7;
+      --amber: #b45309;
+      --amber-bg: #fef3c7;
+      --purple: #6d28d9;
       --border: #e5e7eb;
       --muted: #6b7280;
       --surface: #ffffff;
       --bg: #f8fafc;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Apple SD Gothic Neo', sans-serif; background: var(--bg); color: #111827; font-size: 14px; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Apple SD Gothic Neo', sans-serif;
+      background: var(--bg); color: #111827; font-size: 14px;
+    }
 
     /* ── header ── */
-    header { background: var(--accent); color: #fff; padding: 12px 20px; display: flex; align-items: center; gap: 12px; }
+    header {
+      background: var(--accent); color: #fff;
+      padding: 12px 20px; display: flex; align-items: center; gap: 12px;
+    }
     header h1 { font-size: 17px; font-weight: 700; }
-    #updated-at { font-size: 11px; opacity: .75; margin-left: auto; }
+    #updated-at { font-size: 11px; opacity: .75; margin-left: auto; white-space: nowrap; }
 
-    /* ── controls ── */
-    .controls { background: var(--surface); border-bottom: 1px solid var(--border); padding: 8px 20px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    /* ── filters ── */
+    .controls {
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 8px 20px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    }
     .controls label { font-size: 12px; color: var(--muted); }
-    select { border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; font-size: 13px; background: white; cursor: pointer; }
+    select {
+      border: 1px solid var(--border); border-radius: 6px;
+      padding: 5px 10px; font-size: 13px; background: white; cursor: pointer;
+    }
 
-    /* ── stats chips ── */
-    .stats { display: flex; gap: 6px; padding: 8px 20px; flex-wrap: wrap; background: var(--bg); border-bottom: 1px solid var(--border); }
-    .chip { background: var(--accent-bg); color: var(--accent); border-radius: 20px; padding: 3px 11px; font-size: 12px; font-weight: 600; }
+    /* ── stats ── */
+    .stats {
+      background: var(--bg); border-bottom: 1px solid var(--border);
+      padding: 7px 20px; display: flex; gap: 6px; flex-wrap: wrap;
+    }
+    .chip {
+      background: var(--accent-bg); color: var(--accent);
+      border-radius: 20px; padding: 2px 10px; font-size: 12px; font-weight: 600;
+    }
 
     /* ── tabs ── */
-    .tabs { display: flex; background: var(--surface); border-bottom: 2px solid var(--border); padding: 0 16px; overflow-x: auto; }
-    .tab-btn { padding: 10px 14px; border: none; background: none; cursor: pointer; font-size: 13px; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -2px; white-space: nowrap; }
+    .tabs {
+      background: var(--surface); border-bottom: 2px solid var(--border);
+      padding: 0 16px; display: flex; overflow-x: auto;
+    }
+    .tab-btn {
+      padding: 10px 16px; border: none; background: none; cursor: pointer;
+      font-size: 13px; color: var(--muted);
+      border-bottom: 2px solid transparent; margin-bottom: -2px; white-space: nowrap;
+    }
     .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
 
-    /* ── tab panels ── */
+    /* ── panels ── */
     .panel { display: none; }
     .panel.active { display: block; }
 
-    /* ── map ── */
-    #map { height: calc(100vh - 190px); min-height: 400px; }
+    /* ── recommendation cards ── */
+    .rec-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 14px; padding: 16px 20px;
+    }
+    .rec-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; overflow: hidden;
+    }
+    .card-top { padding: 14px 16px 10px; border-bottom: 1px solid var(--border); }
+    .card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+    .score-badge {
+      padding: 2px 9px; border-radius: 20px; font-size: 12px; font-weight: 700;
+      white-space: nowrap;
+    }
+    .score-hi { background: var(--green-bg); color: var(--green); }
+    .score-mid { background: var(--amber-bg); color: var(--amber); }
+    .score-lo { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+    .card-name { font-size: 15px; font-weight: 700; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .badge { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11px; font-weight: 600; flex-shrink: 0; }
+    .b-매매 { background: #dbeafe; color: #1d4ed8; }
+    .b-전세 { background: var(--amber-bg); color: var(--amber); }
+    .b-월세 { background: #fce7f3; color: #9d174d; }
+    .b-재건축 { background: #f3e8ff; color: var(--purple); }
+    .b-재개발 { background: var(--green-bg); color: var(--green); }
+    .b-주거환경개선 { background: #fff7ed; color: #c2410c; }
+    .card-sub { font-size: 12px; color: var(--muted); }
+
+    .card-price { padding: 10px 16px 6px; }
+    .price-main { font-size: 20px; font-weight: 700; }
+    .price-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .card-gap { padding: 0 16px 10px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .gap-avg { font-size: 12px; color: var(--muted); }
+    .gap-badge { padding: 2px 8px; border-radius: 20px; font-size: 12px; font-weight: 700; }
+    .gap-pos { background: var(--green-bg); color: var(--green); }
+    .gap-neg { background: #fee2e2; color: #b91c1c; }
+    .gap-neutral { background: var(--bg); color: var(--muted); font-weight: 400; }
+
+    .card-scores { padding: 10px 16px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 7px; }
+    .score-row { display: flex; align-items: center; gap: 8px; }
+    .score-label { font-size: 12px; color: var(--muted); width: 40px; flex-shrink: 0; }
+    .score-bar-bg { flex: 0 0 100px; height: 6px; background: var(--border); border-radius: 3px; }
+    .score-bar-fill { height: 100%; border-radius: 3px; background: var(--accent); }
+    .score-bar-fill.redev { background: var(--purple); }
+    .score-bar-fill.liq { background: var(--green); }
+    .score-num { font-size: 12px; font-weight: 600; width: 32px; text-align: right; flex-shrink: 0; }
+    .score-note { font-size: 11px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .score-na { font-size: 11px; color: #9ca3af; font-style: italic; }
+
+    .card-footer {
+      padding: 9px 16px; display: flex; align-items: center; gap: 8px;
+      font-size: 12px; color: var(--muted);
+    }
+    .card-agency { flex-shrink: 0; max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .card-note { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .card-link { flex-shrink: 0; color: var(--accent); font-weight: 600; text-decoration: none; font-size: 12px; }
+    .card-link:hover { text-decoration: underline; }
+
+    /* ── analysis tab ── */
+    .section { padding: 16px 20px; }
+    .section-title { font-size: 14px; font-weight: 700; margin-bottom: 12px; color: #374151; }
+    .chart-box {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 16px; height: 360px; position: relative; margin-bottom: 20px;
+    }
 
     /* ── tables ── */
-    .section { padding: 14px 20px; }
-    .scroll-wrap { overflow: auto; max-height: calc(100vh - 230px); border: 1px solid var(--border); border-radius: 8px; }
+    .scroll-wrap { border: 1px solid var(--border); border-radius: 8px; overflow: auto; max-height: calc(100vh - 280px); }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    thead th { background: var(--bg); padding: 8px 10px; text-align: left; font-weight: 600; color: var(--muted); border-bottom: 2px solid var(--border); position: sticky; top: 0; z-index: 1; white-space: nowrap; }
+    thead th {
+      background: var(--bg); padding: 8px 10px; text-align: left;
+      font-weight: 600; color: var(--muted); border-bottom: 2px solid var(--border);
+      position: sticky; top: 0; z-index: 1; white-space: nowrap;
+    }
     tbody td { padding: 7px 10px; border-bottom: 1px solid var(--border); }
+    tbody tr:last-child td { border-bottom: none; }
     tbody tr:hover { background: var(--bg); }
     .num { text-align: right; font-variant-numeric: tabular-nums; }
 
-    /* ── gap cards ── */
-    .gap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; padding: 14px 20px; }
-    .gap-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
-    .gap-card h3 { font-size: 15px; font-weight: 700; margin-bottom: 10px; }
-    .gap-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
-    .gap-metric-label { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
-    .gap-metric-value { font-size: 17px; font-weight: 700; }
-    .gap-metric-unit { font-size: 11px; font-weight: 400; color: var(--muted); }
-    .gap-badge { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; }
-    .gap-pos { background: #fee2e2; color: #b91c1c; }
-    .gap-neg { background: #dcfce7; color: #15803d; }
-    .gap-neutral { background: var(--bg); color: var(--muted); }
-    .gap-footer { font-size: 11px; color: #9ca3af; margin-top: 6px; }
-
-    /* ── trend chart ── */
-    .chart-section { padding: 14px 20px; }
-    .chart-box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; height: 380px; position: relative; }
+    .gap-cell-pos { color: var(--green); font-weight: 600; }
+    .gap-cell-neg { color: #b91c1c; font-weight: 600; }
 
     /* ── zone score bar ── */
     .score-wrap { display: flex; align-items: center; gap: 6px; }
-    .score-bar-bg { flex: 1; height: 6px; background: var(--border); border-radius: 3px; max-width: 100px; }
-    .score-bar-fill { height: 100%; border-radius: 3px; background: var(--accent); }
-    .score-num { font-weight: 600; font-size: 13px; min-width: 28px; }
+    .sz-bar-bg { flex: 0 0 80px; height: 6px; background: var(--border); border-radius: 3px; }
+    .sz-bar-fill { height: 100%; border-radius: 3px; background: var(--purple); }
 
-    /* ── badges ── */
-    .badge { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11px; font-weight: 600; }
-    .b-매매 { background: #dbeafe; color: #1d4ed8; }
-    .b-전세 { background: #fef3c7; color: #b45309; }
-    .b-월세 { background: #fce7f3; color: #9d174d; }
-    .b-재건축 { background: #f3e8ff; color: #6d28d9; }
-    .b-재개발 { background: #ecfdf5; color: #065f46; }
-    .b-주거환경개선 { background: #fff7ed; color: #c2410c; }
-
-    /* ── empty state ── */
-    .empty { text-align: center; color: var(--muted); padding: 48px 20px; }
-    .empty p { margin-top: 6px; font-size: 12px; }
-
-    a { color: var(--accent); text-decoration: none; }
-    a:hover { text-decoration: underline; }
+    /* ── empty ── */
+    .empty { text-align: center; color: var(--muted); padding: 56px 20px; }
+    .empty strong { display: block; font-size: 15px; margin-bottom: 6px; color: #374151; }
+    .empty p { font-size: 12px; line-height: 1.6; }
+    .btn-reset {
+      margin-top: 12px; padding: 6px 16px; border: 1px solid var(--border);
+      border-radius: 6px; background: white; cursor: pointer; font-size: 13px; color: var(--muted);
+    }
+    .btn-reset:hover { background: var(--bg); }
 
     @media (max-width: 640px) {
-      .gap-grid { grid-template-columns: 1fr; }
+      .rec-grid { grid-template-columns: 1fr; padding: 12px; gap: 10px; }
     }
   </style>
 </head>
@@ -107,71 +181,64 @@
 </header>
 
 <div class="controls">
-  <label for="district-select">자치구</label>
-  <select id="district-select"><option value="">전체</option></select>
+  <label for="sel-district">자치구</label>
+  <select id="sel-district"><option value="">전체</option></select>
+
+  <label for="sel-trade">거래유형</label>
+  <select id="sel-trade">
+    <option value="">전체</option>
+    <option value="매매">매매</option>
+    <option value="전세">전세</option>
+    <option value="월세">월세</option>
+  </select>
+
+  <label for="sel-size">면적대</label>
+  <select id="sel-size">
+    <option value="">전체</option>
+    <option value="small">소형 &lt;40㎡</option>
+    <option value="medium">중형 40-85㎡</option>
+    <option value="large">대형 &gt;85㎡</option>
+  </select>
 </div>
 
 <div class="stats" id="stats-bar"></div>
 
 <div class="tabs">
-  <button class="tab-btn active" data-panel="panel-map">지도</button>
-  <button class="tab-btn" data-panel="panel-listings">매물</button>
-  <button class="tab-btn" data-panel="panel-transactions">실거래</button>
-  <button class="tab-btn" data-panel="panel-gap">갭 분석</button>
-  <button class="tab-btn" data-panel="panel-trend">월별 추세</button>
-  <button class="tab-btn" data-panel="panel-zones">재개발</button>
+  <button class="tab-btn active" data-panel="panel-recs">추천 매물</button>
+  <button class="tab-btn" data-panel="panel-analysis">실거래 분석</button>
+  <button class="tab-btn" data-panel="panel-zones">재개발 현황</button>
 </div>
 
-<!-- 지도 -->
-<div id="panel-map" class="panel active">
-  <div id="map"></div>
+<!-- 추천 매물 -->
+<div id="panel-recs" class="panel active">
+  <div id="rec-grid" class="rec-grid"></div>
 </div>
 
-<!-- 매물 -->
-<div id="panel-listings" class="panel">
+<!-- 실거래 분석 -->
+<div id="panel-analysis" class="panel">
   <div class="section">
-    <div class="scroll-wrap">
-      <table>
-        <thead><tr>
-          <th>건물명</th><th>구</th><th>종류</th><th>거래</th>
-          <th>면적</th><th>층</th><th class="num">호가(만원)</th>
-        </tr></thead>
-        <tbody id="tbody-listings"></tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
-<!-- 실거래 -->
-<div id="panel-transactions" class="panel">
-  <div class="section">
-    <div class="scroll-wrap">
-      <table>
-        <thead><tr>
-          <th>건물명</th><th>구</th><th>법정동</th><th>면적</th><th>층</th>
-          <th class="num">거래가(만원)</th><th class="num">만원/㎡</th><th>거래일</th>
-        </tr></thead>
-        <tbody id="tbody-transactions"></tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
-<!-- 갭 분석 -->
-<div id="panel-gap" class="panel">
-  <div class="gap-grid" id="gap-grid"></div>
-</div>
-
-<!-- 월별 추세 -->
-<div id="panel-trend" class="panel">
-  <div class="chart-section">
-    <div class="chart-box">
+    <div class="section-title">월별 실거래가 추세 (㎡당 만원)</div>
+    <div class="chart-box" id="trend-box">
       <canvas id="trend-chart"></canvas>
     </div>
+    <div class="section-title">구별 호가↔실거래 갭</div>
+    <div class="scroll-wrap">
+      <table>
+        <thead><tr>
+          <th>자치구</th>
+          <th class="num">호가/㎡ (만원)</th>
+          <th class="num">실거래/㎡ (만원)</th>
+          <th class="num">갭 (%)</th>
+          <th class="num">매물</th>
+          <th class="num">실거래</th>
+        </tr></thead>
+        <tbody id="gap-body"></tbody>
+      </table>
+    </div>
   </div>
 </div>
 
-<!-- 재개발 -->
+<!-- 재개발 현황 -->
 <div id="panel-zones" class="panel">
   <div class="section">
     <div class="scroll-wrap">
@@ -179,28 +246,15 @@
         <thead><tr>
           <th>구역명</th><th>구</th><th>유형</th><th>단계</th><th>점수</th>
         </tr></thead>
-        <tbody id="tbody-zones"></tbody>
+        <tbody id="zone-body"></tbody>
       </table>
     </div>
   </div>
 </div>
 
 <script>
-// ── 서울 자치구 중심 좌표 ────────────────────────────────────────────────────
-const DISTRICT_COORDS = {
-  '강남구':[37.5172,127.0473],'강동구':[37.5301,127.1238],'강북구':[37.6396,127.0253],
-  '강서구':[37.5509,126.8497],'관악구':[37.4784,126.9516],'광진구':[37.5385,127.0822],
-  '구로구':[37.4955,126.8874],'금천구':[37.4601,126.9001],'노원구':[37.6543,127.0568],
-  '도봉구':[37.6688,127.0471],'동대문구':[37.5744,127.0399],'동작구':[37.5121,126.9397],
-  '마포구':[37.5535,126.9006],'서대문구':[37.5791,126.9368],'서초구':[37.4837,127.0324],
-  '성동구':[37.5633,127.0370],'성북구':[37.5894,127.0167],'송파구':[37.5145,127.1066],
-  '양천구':[37.5170,126.8664],'영등포구':[37.5264,126.8963],'용산구':[37.5324,126.9906],
-  '은평구':[37.6177,126.9227],'종로구':[37.5730,126.9794],'중구':[37.5640,126.9979],
-  '중랑구':[37.6063,127.0925],
-};
-
-// ── 상태 ─────────────────────────────────────────────────────────────────────
-const S = { district: '', data: null, map: null, trendChart: null };
+// ── 상태 ────────────────────────────────────────────────────────────────────
+const S = { district: '', tradeType: '', sizeBand: '', data: null, trendChart: null };
 
 // ── 유틸 ─────────────────────────────────────────────────────────────────────
 function esc(s) {
@@ -212,196 +266,206 @@ function fmt(v) {
 }
 function fmtDate(y, m, d) {
   if (!y) return '-';
-  const ms = String(m ?? 0).padStart(2,'0');
-  return d ? `${y}-${ms}-${String(d).padStart(2,'0')}` : `${y}-${ms}`;
-}
-function hashJitter(str, scale = 0.007) {
-  let h = 5381;
-  for (let i = 0; i < str.length; i++) h = ((h << 5) + h) ^ str.charCodeAt(i);
-  h = h >>> 0;
-  return [(((h & 0xffff) / 65535) - 0.5) * scale, ((((h >> 16) & 0xffff) / 65535) - 0.5) * scale];
-}
-function coords(item, seed) {
-  const b = DISTRICT_COORDS[item.district];
-  if (!b) return null;
-  const [dy, dx] = hashJitter(seed);
-  return [b[0] + dy, b[1] + dx];
-}
-function byDistrict(arr) {
-  return S.district ? arr.filter(x => x.district === S.district) : arr;
+  return d
+    ? `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`
+    : `${y}-${String(m).padStart(2,'0')}`;
 }
 
 // ── 데이터 로드 ───────────────────────────────────────────────────────────────
 async function loadData() {
   try {
-    const [listings, transactions, zones, analysis, summary] = await Promise.all([
-      fetch('data/listings.json').then(r => r.json()),
-      fetch('data/transactions.json').then(r => r.json()),
-      fetch('data/zones.json').then(r => r.json()),
+    const [recs, analysis, zones, summary] = await Promise.all([
+      fetch('data/recommendations.json').then(r => r.json()),
       fetch('data/analysis.json').then(r => r.json()),
+      fetch('data/zones.json').then(r => r.json()),
       fetch('data/summary.json').then(r => r.json()),
     ]);
-    S.data = { listings, transactions, zones, analysis, summary };
+    S.data = { recs, analysis, zones, summary };
   } catch {
-    S.data = { listings:[], transactions:[], zones:[], analysis:{gap:[],trend:[]}, summary:{} };
+    S.data = {
+      recs: { items: [], total_count: 0, scored_count: 0 },
+      analysis: { gap: [], trend: [] },
+      zones: [],
+      summary: {},
+    };
     document.getElementById('updated-at').textContent = '데이터 없음 — Actions 미실행';
   }
 }
 
-// ── 헤더 & 칩 ────────────────────────────────────────────────────────────────
-function renderHeader() {
-  const at = S.data.summary.updated_at
-    ? new Date(S.data.summary.updated_at).toLocaleString('ko-KR', {timeZone:'Asia/Seoul'})
-    : '-';
-  document.getElementById('updated-at').textContent = `업데이트: ${at}`;
-
-  const L = byDistrict(S.data.listings).length;
-  const T = byDistrict(S.data.transactions).length;
-  const Z = byDistrict(S.data.zones).length;
-  document.getElementById('stats-bar').innerHTML =
-    `<span class="chip">매물 ${L}건</span>` +
-    `<span class="chip">실거래 ${T}건</span>` +
-    `<span class="chip">재개발 ${Z}건</span>`;
+// ── 필터 ─────────────────────────────────────────────────────────────────────
+function filteredRecs() {
+  let items = (S.data.recs.items || []);
+  if (S.district)   items = items.filter(x => x.district === S.district);
+  if (S.tradeType)  items = items.filter(x => x.trade_type === S.tradeType);
+  if (S.sizeBand) {
+    items = items.filter(x => {
+      const a = x.area_sqm;
+      if (!a) return false;
+      if (S.sizeBand === 'small')  return a < 40;
+      if (S.sizeBand === 'medium') return a >= 40 && a <= 85;
+      if (S.sizeBand === 'large')  return a > 85;
+      return true;
+    });
+  }
+  return items;
+}
+function filteredZones() {
+  return S.district ? S.data.zones.filter(z => z.district === S.district) : S.data.zones;
+}
+function filteredGap() {
+  return S.district
+    ? S.data.analysis.gap.filter(g => g.district === S.district)
+    : S.data.analysis.gap;
+}
+function filteredTrend() {
+  return S.district
+    ? S.data.analysis.trend.filter(t => t.district === S.district)
+    : S.data.analysis.trend;
 }
 
-function renderDistrictSelect() {
-  const all = [...S.data.listings, ...S.data.transactions, ...S.data.zones];
-  const districts = [...new Set(all.map(x => x.district).filter(Boolean))].sort();
-  const sel = document.getElementById('district-select');
+// ── district select 구축 ──────────────────────────────────────────────────────
+function buildDistrictSelect() {
+  const all = [
+    ...(S.data.recs.items || []).map(x => x.district),
+    ...S.data.zones.map(x => x.district),
+  ];
+  const districts = [...new Set(all.filter(Boolean))].sort();
+  const sel = document.getElementById('sel-district');
   sel.innerHTML = '<option value="">전체</option>' +
     districts.map(d => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
+  sel.value = S.district;
 }
 
-// ── 지도 ─────────────────────────────────────────────────────────────────────
-function initMap() {
-  S.map = L.map('map').setView([37.5630, 126.9910], 11);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    maxZoom: 19,
-  }).addTo(S.map);
+// ── stats bar ─────────────────────────────────────────────────────────────────
+function renderStats() {
+  const recs = filteredRecs();
+  const at = S.data.summary.updated_at
+    ? new Date(S.data.summary.updated_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })
+    : '-';
+  document.getElementById('updated-at').textContent = `업데이트: ${at}`;
+  document.getElementById('stats-bar').innerHTML =
+    `<span class="chip">추천 ${recs.length}건</span>` +
+    `<span class="chip">재개발 ${filteredZones().length}건</span>`;
 }
 
-function renderMap() {
-  if (!S.map) return;
-  S.map.eachLayer(l => { if (l instanceof L.CircleMarker) S.map.removeLayer(l); });
+// ── 추천 카드 ─────────────────────────────────────────────────────────────────
+function scoreBadgeClass(score) {
+  if (score >= 70) return 'score-hi';
+  if (score >= 50) return 'score-mid';
+  return 'score-lo';
+}
 
-  byDistrict(S.data.listings).forEach(li => {
-    const c = coords(li, (li.listing_id||'')+(li.name||''));
-    if (!c) return;
-    L.circleMarker(c, {radius:7, color:'#1d4ed8', fillColor:'#3b82f6', fillOpacity:.85, weight:1.5})
-      .addTo(S.map)
-      .bindPopup(
-        `<b>${esc(li.name||'-')}</b><br>` +
-        `호가: ${esc(li.price_manwon)}만원<br>` +
-        `${li.area_sqm}㎡ / ${li.floor||'-'}층 / ${li.trade_type||'-'}`
-      );
-  });
-
-  byDistrict(S.data.transactions).forEach(t => {
-    const c = coords(t, (t.name||'')+(t.dong||'')+(t.deal_day||''));
-    if (!c) return;
-    const ppsm = t.area_sqm && t.price_manwon ? Math.round(t.price_manwon/t.area_sqm) : null;
-    L.circleMarker(c, {radius:6, color:'#15803d', fillColor:'#22c55e', fillOpacity:.8, weight:1.5})
-      .addTo(S.map)
-      .bindPopup(
-        `<b>${esc(t.name||'-')}</b><br>` +
-        `실거래: ${fmt(t.price_manwon)}만원${ppsm?` (${fmt(ppsm)}/㎡)`:''}<br>` +
-        fmtDate(t.deal_year, t.deal_month, t.deal_day)
-      );
-  });
-
-  byDistrict(S.data.zones).forEach(z => {
-    const c = coords(z, (z.name||'')+(z.address||''));
-    if (!c) return;
-    L.circleMarker(c, {radius:8, color:'#6d28d9', fillColor:'#a78bfa', fillOpacity:.75, weight:1.5})
-      .addTo(S.map)
-      .bindPopup(`<b>${esc(z.name)}</b><br>${esc(z.biz_type)} / ${esc(z.stage)}<br>점수: ${z.score??'-'}`);
-  });
-
-  if (S.district && DISTRICT_COORDS[S.district]) {
-    S.map.setView(DISTRICT_COORDS[S.district], 13);
+function renderRecs() {
+  const items = filteredRecs();
+  const el = document.getElementById('rec-grid');
+  if (!items.length) {
+    const hasFilters = S.district || S.tradeType || S.sizeBand;
+    el.innerHTML = `<div class="empty" style="grid-column:1/-1">
+      <strong>추천 매물 없음</strong>
+      <p>${hasFilters ? '필터 조건에 맞는 매물이 없습니다.' : '매물·실거래 데이터를 수집하면 추천이 표시됩니다.<br>Actions를 실행하거나 CLI로 collect 후 export_json.py를 실행하세요.'}</p>
+      ${hasFilters ? `<button class="btn-reset" onclick="resetFilters()">필터 초기화</button>` : ''}
+    </div>`;
+    return;
   }
-}
 
-// ── 매물 테이블 ───────────────────────────────────────────────────────────────
-function renderListings() {
-  const data = byDistrict(S.data.listings);
-  const el = document.getElementById('tbody-listings');
-  if (!data.length) { el.innerHTML = emptyRow(7); return; }
-  el.innerHTML = data.map(li => `<tr>
-    <td>${li.detail_url ? `<a href="${esc(li.detail_url)}" target="_blank">${esc(li.name||'-')}</a>` : esc(li.name||'-')}</td>
-    <td>${esc(li.district)}</td>
-    <td>${esc(li.listing_type||'-')}</td>
-    <td><span class="badge b-${esc(li.trade_type)}">${esc(li.trade_type||'-')}</span></td>
-    <td>${esc(li.area_sqm||'-')}㎡</td>
-    <td>${esc(li.floor||'-')}층</td>
-    <td class="num">${esc(li.price_manwon||'-')}</td>
-  </tr>`).join('');
-}
+  el.innerHTML = items.map(r => {
+    const badgeClass = scoreBadgeClass(r.total_score);
 
-// ── 실거래 테이블 ─────────────────────────────────────────────────────────────
-function renderTransactions() {
-  const data = byDistrict(S.data.transactions);
-  const el = document.getElementById('tbody-transactions');
-  if (!data.length) { el.innerHTML = emptyRow(8); return; }
-  el.innerHTML = data.map(t => {
-    const ppsm = t.area_sqm && t.price_manwon ? Math.round(t.price_manwon/t.area_sqm) : null;
-    return `<tr>
-      <td>${esc(t.name||'-')}</td>
-      <td>${esc(t.district)}</td>
-      <td>${esc(t.dong||'-')}</td>
-      <td>${esc(String(t.area_sqm||'-'))}㎡</td>
-      <td>${esc(String(t.floor??'-'))}층</td>
-      <td class="num">${fmt(t.price_manwon)}</td>
-      <td class="num" style="color:var(--muted)">${ppsm?fmt(ppsm):'-'}</td>
-      <td>${fmtDate(t.deal_year, t.deal_month, t.deal_day)}</td>
-    </tr>`;
-  }).join('');
-}
+    // 가격 정보
+    const priceStr = r.price_manwon ? `${fmt(r.price_manwon)}만원` : r.price_manwon_raw || '-';
+    const ppsm = r.price_per_sqm ? `㎡당 ${fmt(Math.round(r.price_per_sqm))}만원` : '';
 
-// ── 갭 분석 카드 ──────────────────────────────────────────────────────────────
-function renderGap() {
-  const gap = S.district
-    ? S.data.analysis.gap.filter(x => x.district === S.district)
-    : S.data.analysis.gap;
-  const el = document.getElementById('gap-grid');
-  if (!gap.length) { el.innerHTML = `<div class="empty"><b>갭 데이터 없음</b><p>매물과 실거래를 모두 수집하면 표시됩니다</p></div>`; return; }
-  el.innerHTML = gap.map(g => {
-    const gp = g.gap_pct;
-    const cls = gp === null ? 'gap-neutral' : gp > 0 ? 'gap-pos' : 'gap-neg';
-    const txt = gp === null ? '-' : `${gp > 0 ? '+' : ''}${gp}%`;
-    return `<div class="gap-card">
-      <h3>${esc(g.district)}</h3>
-      <div class="gap-metrics">
-        <div>
-          <div class="gap-metric-label">평균 호가/㎡</div>
-          <div class="gap-metric-value">${g.avg_listing_per_sqm ? fmt(Math.round(g.avg_listing_per_sqm)) : '-'}<span class="gap-metric-unit">만원</span></div>
+    // 갭 배지
+    let gapHtml = '';
+    if (r.has_tx_data && r.gap_pct != null) {
+      const cls = r.gap_pct > 0 ? 'gap-pos' : (r.gap_pct < 0 ? 'gap-neg' : 'gap-neutral');
+      const sign = r.gap_pct > 0 ? '+' : '';
+      const label = r.gap_pct > 0 ? ' 저평가' : (r.gap_pct < 0 ? ' 고평가' : '');
+      gapHtml = `<span class="gap-badge ${cls}">${sign}${r.gap_pct}%${label}</span>`;
+    } else if (!r.has_tx_data) {
+      gapHtml = `<span class="gap-badge gap-neutral">실거래 없음</span>`;
+    }
+    const avgStr = r.district_avg_tx_per_sqm
+      ? `구 실거래 평균 ${fmt(Math.round(r.district_avg_tx_per_sqm))}만원/㎡` : '';
+
+    // 점수 행 렌더
+    function scoreRow(label, score, cls, note) {
+      const barPct = Math.round(score);
+      const noteHtml = note
+        ? `<span class="score-note">${esc(note)}</span>`
+        : '';
+      return `<div class="score-row">
+        <span class="score-label">${label}</span>
+        <div class="score-bar-bg"><div class="score-bar-fill ${cls}" style="width:${barPct}%"></div></div>
+        <span class="score-num">${score}</span>
+        ${noteHtml}
+      </div>`;
+    }
+
+    const gapNote = r.has_tx_data ? '' : '실거래 데이터 없음';
+    const gapRow = r.has_tx_data
+      ? scoreRow('가격갭', r.score_gap, '', '')
+      : `<div class="score-row">
+          <span class="score-label">가격갭</span>
+          <span class="score-na">실거래 데이터 없음 (중립 50)</span>
+        </div>`;
+
+    const zoneNote = r.district_zone_name
+      ? `${r.district_zone_name}·${r.district_zone_stage}`
+      : (!r.has_zone_data ? '구역 없음' : '');
+    const zoneRow = scoreRow('재개발', r.score_zone, 'redev', zoneNote);
+
+    const liqRow = scoreRow('유동성', r.score_liquidity, 'liq',
+      r.district_tx_count ? `${r.district_tx_count}건` : '');
+
+    // 면적/층 표기
+    const areaPart = r.area_sqm ? `${r.area_sqm}㎡` : (r.area_sqm_raw || '-');
+    const floorPart = r.floor ? `${r.floor}층` : '';
+
+    return `<div class="rec-card">
+      <div class="card-top">
+        <div class="card-header">
+          <span class="score-badge ${badgeClass}">총점 ${r.total_score}</span>
+          <span class="card-name" title="${esc(r.name)}">${esc(r.name || '-')}</span>
+          <span class="badge b-${esc(r.trade_type)}">${esc(r.trade_type || '')}</span>
         </div>
-        <div>
-          <div class="gap-metric-label">평균 실거래/㎡</div>
-          <div class="gap-metric-value">${g.avg_tx_per_sqm ? fmt(Math.round(g.avg_tx_per_sqm)) : '-'}<span class="gap-metric-unit">만원</span></div>
-        </div>
+        <div class="card-sub">${esc(r.district)} · ${areaPart}${floorPart ? ` · ${floorPart}` : ''}</div>
       </div>
-      <span class="gap-badge ${cls}">갭 ${txt}</span>
-      <div class="gap-footer">매물 ${g.listing_count}건 · 실거래 ${g.tx_count}건</div>
+
+      <div class="card-price">
+        <div class="price-main">${priceStr}</div>
+        <div class="price-meta">${ppsm}</div>
+      </div>
+      <div class="card-gap">
+        ${avgStr ? `<span class="gap-avg">${avgStr}</span>` : ''}
+        ${gapHtml}
+      </div>
+
+      <div class="card-scores">
+        ${gapRow}
+        ${zoneRow}
+        ${liqRow}
+      </div>
+
+      <div class="card-footer">
+        <span class="card-agency" title="${esc(r.agency)}">${esc(r.agency || '')}</span>
+        <span class="card-note" title="${esc(r.note)}">${esc(r.note || '')}</span>
+        ${r.detail_url ? `<a class="card-link" href="${esc(r.detail_url)}" target="_blank" rel="noopener">상세 →</a>` : ''}
+      </div>
     </div>`;
   }).join('');
 }
 
-// ── 월별 추세 차트 ─────────────────────────────────────────────────────────────
+// ── 실거래 추세 차트 ──────────────────────────────────────────────────────────
 function renderTrend() {
-  const trend = S.district
-    ? S.data.analysis.trend.filter(x => x.district === S.district)
-    : S.data.analysis.trend;
-
-  const canvas = document.getElementById('trend-chart');
-  const box = canvas.parentElement;
+  const trend = filteredTrend();
+  const box = document.getElementById('trend-box');
 
   if (!trend.length) {
-    box.innerHTML = `<div class="empty"><b>추세 데이터 없음</b><p>여러 달치 실거래를 수집하면 표시됩니다</p></div>`;
+    box.innerHTML = `<div class="empty"><strong>추세 데이터 없음</strong><p>여러 달치 실거래를 수집하면 표시됩니다</p></div>`;
     return;
   }
-  if (!canvas.isConnected) {
+  if (!document.getElementById('trend-chart')) {
     box.innerHTML = '<canvas id="trend-chart"></canvas>';
   }
 
@@ -409,21 +473,18 @@ function renderTrend() {
   const districts = [...new Set(trend.map(t => t.district))];
   const palette = ['#1d4ed8','#15803d','#b91c1c','#b45309','#6d28d9','#0e7490','#be185d'];
 
-  const map = {};
+  const byDist = {};
   trend.forEach(t => {
-    if (!map[t.district]) map[t.district] = {};
-    map[t.district][t.deal_ymd] = t.avg_price_per_sqm;
+    if (!byDist[t.district]) byDist[t.district] = {};
+    byDist[t.district][t.deal_ymd] = t.avg_price_per_sqm;
   });
 
   const datasets = districts.map((d, i) => ({
     label: d,
-    data: months.map(m => map[d]?.[m] ?? null),
+    data: months.map(m => byDist[d]?.[m] ?? null),
     borderColor: palette[i % palette.length],
-    backgroundColor: palette[i % palette.length] + '18',
-    borderWidth: 2,
-    tension: 0.3,
-    spanGaps: true,
-    pointRadius: 4,
+    backgroundColor: palette[i % palette.length] + '15',
+    borderWidth: 2, tension: 0.3, spanGaps: true, pointRadius: 4,
   }));
 
   if (S.trendChart) { S.trendChart.destroy(); S.trendChart = null; }
@@ -444,40 +505,70 @@ function renderTrend() {
   });
 }
 
+// ── 갭 테이블 ─────────────────────────────────────────────────────────────────
+function renderGap() {
+  const gap = filteredGap();
+  const el = document.getElementById('gap-body');
+  if (!gap.length) {
+    el.innerHTML = `<tr><td colspan="6" class="empty">데이터 없음</td></tr>`;
+    return;
+  }
+  el.innerHTML = gap.map(g => {
+    const gp = g.gap_pct;
+    const cls = gp == null ? '' : gp > 0 ? 'gap-cell-pos' : 'gap-cell-neg';
+    const sign = gp != null && gp > 0 ? '+' : '';
+    return `<tr>
+      <td>${esc(g.district)}</td>
+      <td class="num">${g.avg_listing_per_sqm ? fmt(Math.round(g.avg_listing_per_sqm)) : '-'}</td>
+      <td class="num">${g.avg_tx_per_sqm ? fmt(Math.round(g.avg_tx_per_sqm)) : '-'}</td>
+      <td class="num ${cls}">${gp != null ? `${sign}${gp}%` : '-'}</td>
+      <td class="num">${g.listing_count}</td>
+      <td class="num">${g.tx_count}</td>
+    </tr>`;
+  }).join('');
+}
+
 // ── 재개발 테이블 ─────────────────────────────────────────────────────────────
 function renderZones() {
-  const data = byDistrict(S.data.zones);
-  const el = document.getElementById('tbody-zones');
-  if (!data.length) { el.innerHTML = emptyRow(5); return; }
+  const data = filteredZones();
+  const el = document.getElementById('zone-body');
+  if (!data.length) {
+    el.innerHTML = `<tr><td colspan="5" class="empty">데이터 없음</td></tr>`;
+    return;
+  }
   el.innerHTML = data.map(z => {
     const score = z.score != null ? Math.round(z.score) : 0;
     return `<tr>
-      <td>${esc(z.name||'-')}</td>
+      <td>${esc(z.name || '-')}</td>
       <td>${esc(z.district)}</td>
-      <td><span class="badge b-${esc(z.biz_type)}">${esc(z.biz_type||'-')}</span></td>
-      <td>${esc(z.stage||'-')}</td>
+      <td><span class="badge b-${esc(z.biz_type)}">${esc(z.biz_type || '-')}</span></td>
+      <td>${esc(z.stage || '-')}</td>
       <td>
         <div class="score-wrap">
-          <div class="score-bar-bg"><div class="score-bar-fill" style="width:${score}%"></div></div>
-          <span class="score-num">${score}</span>
+          <div class="sz-bar-bg"><div class="sz-bar-fill" style="width:${score}%"></div></div>
+          <span style="font-weight:600;font-size:13px;min-width:28px">${score}</span>
         </div>
       </td>
     </tr>`;
   }).join('');
 }
 
-function emptyRow(cols) {
-  return `<tr><td colspan="${cols}" class="empty">데이터 없음</td></tr>`;
+// ── 필터 초기화 ───────────────────────────────────────────────────────────────
+function resetFilters() {
+  S.district = ''; S.tradeType = ''; S.sizeBand = '';
+  document.getElementById('sel-district').value = '';
+  document.getElementById('sel-trade').value = '';
+  document.getElementById('sel-size').value = '';
+  renderAll();
 }
 
+// ── 전체 렌더 ─────────────────────────────────────────────────────────────────
 function renderAll() {
-  renderHeader();
-  renderMap();
-  renderListings();
-  renderTransactions();
+  renderStats();
+  renderRecs();
   renderGap();
   renderZones();
-  // trend은 탭 활성화 시 렌더 (canvas 크기 이슈 방지)
+  // trend은 탭 전환 시에만 렌더 (canvas 크기 보장)
 }
 
 // ── 탭 전환 ──────────────────────────────────────────────────────────────────
@@ -488,22 +579,19 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
     document.getElementById(id).classList.add('active');
-    if (id === 'panel-map') S.map?.invalidateSize();
-    if (id === 'panel-trend') renderTrend();
+    if (id === 'panel-analysis') renderTrend();
   });
 });
 
-// ── 구 필터 ───────────────────────────────────────────────────────────────────
-document.getElementById('district-select').addEventListener('change', e => {
-  S.district = e.target.value;
-  renderAll();
-});
+// ── 필터 이벤트 ───────────────────────────────────────────────────────────────
+document.getElementById('sel-district').addEventListener('change', e => { S.district  = e.target.value; renderAll(); });
+document.getElementById('sel-trade').addEventListener('change',    e => { S.tradeType = e.target.value; renderAll(); });
+document.getElementById('sel-size').addEventListener('change',     e => { S.sizeBand  = e.target.value; renderAll(); });
 
 // ── 초기화 ────────────────────────────────────────────────────────────────────
 (async () => {
   await loadData();
-  renderDistrictSelect();
-  initMap();
+  buildDistrictSelect();
   renderAll();
 })();
 </script>
